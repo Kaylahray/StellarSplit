@@ -82,9 +82,11 @@ export const SplitDetailPage = () => {
     }
 
     const handlePayment = async () => {
+        if (!currentUser) return;
+
         setIsProcessingPayment(true);
         try {
-            const result = await signAndSubmitPayment(currentUser!.amountOwed, 'STELLAR_SPLIT_HUB');
+            const result = await signAndSubmitPayment(currentUser.amountOwed, 'STELLAR_SPLIT_HUB');
             if (result.success) {
                 setPaymentStatus('success');
                 setSplit(prev => {
@@ -102,6 +104,9 @@ export const SplitDetailPage = () => {
                     setIsPaymentModalOpen(false);
                     setPaymentStatus('idle');
                 }, 1500);
+            } else {
+                setPaymentStatus('error');
+                setTimeout(() => setPaymentStatus('idle'), 3000);
             }
         } catch (error) {
             setPaymentStatus('error');

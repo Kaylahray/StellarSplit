@@ -12,7 +12,16 @@ export const ReceiptImage = ({ imageUrl, onView }: ReceiptImageProps) => {
         <div className="mt-4 mb-6">
             <div
                 onClick={onView}
-                className="relative h-48 w-full bg-gray-100 rounded-xl overflow-hidden cursor-pointer group border border-gray-200"
+                onKeyDown={(e) => {
+                    if (e.key === 'Enter' || e.key === ' ') {
+                        e.preventDefault();
+                        onView?.();
+                    }
+                }}
+                role="button"
+                tabIndex={0}
+                aria-label="View full receipt"
+                className="relative h-48 w-full bg-gray-100 rounded-xl overflow-hidden cursor-pointer group border border-gray-200 focus:outline-none focus:ring-2 focus:ring-purple-500 focus:ring-offset-2"
             >
                 <img
                     src={imageUrl}
