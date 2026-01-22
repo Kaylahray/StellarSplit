@@ -32,6 +32,7 @@ async function bootstrap() {
     .setVersion(appConfig.swagger.version)
     .addBearerAuth()
     .addTag('Health', 'Application health checks')
+    .addTag('Participants', 'Manage participants in splits')
     .build();
 
   const document = SwaggerModule.createDocument(app, config);

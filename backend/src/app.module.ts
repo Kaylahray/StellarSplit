@@ -8,6 +8,8 @@ import appConfig from './config/app.config';
 import { HealthModule } from './modules/health/health.module';
 import { StellarModule } from './stellar/stellar.module';
 import { PaymentsModule } from './payments/payments.module';
+import { CurrencyModule } from './modules/currency/currency.module';
+import { SplitsModule } from './modules/splits/splits.module';
 
 // Load environment variables
 dotenv.config({
@@ -41,6 +43,8 @@ dotenv.config({
     HealthModule,
     StellarModule,
     PaymentsModule,
+    CurrencyModule,
+    SplitsModule,
   ],
 })
 export class AppModule {}

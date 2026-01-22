@@ -6,6 +6,8 @@ import * as path from 'path';
 import databaseConfig from './config/database.config';
 import appConfig from './config/app.config';
 import { HealthModule } from './modules/health/health.module';
+import { SplitsModule } from './modules/splits/splits.module';
+import { ParticipantsModule } from './modules/participants/participants.module';
 
 // Load environment variables
 dotenv.config({
@@ -37,6 +39,8 @@ dotenv.config({
       },
     }),
     HealthModule,
+    SplitsModule,
+    ParticipantsModule,
   ],
 })
 export class AppModule {}
