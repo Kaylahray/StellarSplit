@@ -94,7 +94,7 @@ export class EmailProcessor {
       }
 
       this.logger.log(`Email sent successfully to ${to}`);
-    } catch (error) {
+    } catch (error: any) {
       this.logger.error(`Failed to send email to ${to}: ${error.message}`);
       throw error;
     }

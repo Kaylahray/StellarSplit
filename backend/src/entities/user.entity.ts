@@ -23,6 +23,7 @@ export class User {
 
   @Column({
     type: "jsonb",
+    name: "email_preferences",
     default: {
       invitations: true,
       reminders: true,
@@ -32,7 +33,7 @@ export class User {
   })
   emailPreferences!: EmailPreferences;
 
-  @Column({ type: "timestamp", nullable: true })
+  @Column({ type: "timestamp", name: "last_email_sent_at", nullable: true })
   lastEmailSentAt?: Date;
 
   @CreateDateColumn()
