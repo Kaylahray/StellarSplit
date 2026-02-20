@@ -9,6 +9,8 @@ import { PaymentModal } from '../../components/Payment/PaymentModal';
 import { ShareModal } from '../../components/Split/ShareModal';
 import { signAndSubmitPayment } from '../../utils/stellar/wallet';
 import { LoadingSkeleton } from '../../components/Split/LoadingSkeleton';
+import { useCollaboration } from '../../hooks/useCollaboration';
+import { PresenceIndicator, LiveActivityFeed, ConflictResolver } from '../../components/Collaboration';
 import type { Split, Participant } from '../../types';
 
 // Mock Data
@@ -41,34 +43,34 @@ export const SplitDetailPage = () => {
     const [isProcessingPayment, setIsProcessingPayment] = useState(false);
     const [paymentStatus, setPaymentStatus] = useState<'idle' | 'success' | 'error'>('idle');
 
+    const { joinSplit, leaveSplit, sendUpdate, updateCursor, presence } = useCollaboration();
+
+    // Track local cursor
+    useEffect(() => {
+        const handleMouseMove = (e: MouseEvent) => {
+            // throttle in real app
+            updateCursor(e.clientX, e.clientY);
+        };
+        window.addEventListener('mousemove', handleMouseMove);
+        return () => window.removeEventListener('mousemove', handleMouseMove);
+    }, [updateCursor]);
+
     // Simulate initial fetch
     useEffect(() => {
         const timer = setTimeout(() => {
             setIsLoading(false);
-        }, 1500);
-        return () => clearTimeout(timer);
-    }, []);
-
-    // Simulate real-time updates (e.g. Mike R. paying after 10 seconds)
-    useEffect(() => {
-        if (isLoading) return;
-
-        const timer = setTimeout(() => {
-            setSplit(prev => {
-                const newParticipants: Participant[] = prev.participants.map(p =>
-                    p.id === '3' ? { ...p, status: 'paid' as const } : p
-                );
-                const allPaid = newParticipants.every(p => p.status === 'paid');
-                return {
-                    ...prev,
-                    participants: newParticipants,
-                    status: allPaid ? 'completed' : prev.status
-                };
+            // Join collaboration room once loaded
+            joinSplit(MOCK_SPLIT.id, {
+                userId: 'user-123',
+                name: 'You',
+                activeView: 'split-details'
             });
-        }, 10000);
-
-        return () => clearTimeout(timer);
-    }, [isLoading]);
+        }, 1500);
+        return () => {
+            clearTimeout(timer);
+            leaveSplit(); // cleanup on unmount
+        };
+    }, [joinSplit, leaveSplit]);
 
     const currentUser = split.participants.find(p => p.isCurrentUser);
     const shouldShowPayment = currentUser && currentUser.status === 'pending';
@@ -100,6 +102,7 @@ export const SplitDetailPage = () => {
                         status: allPaid ? 'completed' : prev.status
                     };
                 });
+                sendUpdate({ type: 'payment-status', payload: { status: 'paid', amount: currentUser.amountOwed }, userId: 'user-123' });
                 setTimeout(() => {
                     setIsPaymentModalOpen(false);
                     setPaymentStatus('idle');
@@ -160,6 +163,10 @@ export const SplitDetailPage = () => {
 
                 <SplitHeader split={split} />
 
+                <div className="mb-6">
+                    <PresenceIndicator />
+                </div>
+
                 <ReceiptImage imageUrl={split.receiptUrl} />
 
                 <ItemList
@@ -179,6 +186,10 @@ export const SplitDetailPage = () => {
                         onClick={() => setIsPaymentModalOpen(true)}
                     />
                 )}
+
+                <div className="mt-8">
+                    <LiveActivityFeed />
+                </div>
             </div>
 
             {shouldShowPayment && (
@@ -197,6 +208,27 @@ export const SplitDetailPage = () => {
                 onClose={() => setIsShareModalOpen(false)}
                 splitLink={`https://stellarsplit.app/split/${split.id}`}
             />
+
+            <ConflictResolver />
+
+            {/* Render Remote Cursors via Yjs CRDT */}
+            {Object.values(presence).map(user => {
+                if (!user.cursor || user.userId === 'user-123') return null; // don't draw own cursor
+                return (
+                    <div
+                        key={user.userId}
+                        className="fixed pointer-events-none z-50 transition-all duration-75 ease-linear flex flex-col items-start gap-1"
+                        style={{ left: user.cursor.x, top: user.cursor.y }}
+                    >
+                        <svg width="18" height="24" viewBox="0 0 18 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                            <path d="M2.5 0L17.5 15H11.5L8.5 24L2.5 0Z" fill="#A855F7" stroke="white" strokeWidth="2" strokeLinejoin="round" />
+                        </svg>
+                        <span className="bg-purple-500 text-white text-xs px-2 py-0.5 rounded shadow-sm whitespace-nowrap">
+                            {user.name}
+                        </span>
+                    </div>
+                );
+            })}
         </div>
     );
 };

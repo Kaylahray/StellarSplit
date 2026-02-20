@@ -1,4 +1,5 @@
 import { DollarSign, Users, Receipt, TrendingUp } from "lucide-react";
+import { Link } from "react-router";
 
 export default function DashboardPage() {
   const stats = [
@@ -99,7 +100,8 @@ export default function DashboardPage() {
             </h2>
             <div className="space-y-4">
               {recentActivity.map((activity, index) => (
-                <div
+                <Link
+                  to={`/split/split_${index + 123}`}
                   key={index}
                   className="flex items-center justify-between py-3 border-b border-theme last:border-b-0"
                 >
@@ -110,28 +112,28 @@ export default function DashboardPage() {
                     </p>
                   </div>
                   <p className="font-semibold text-theme">{activity.amount}</p>
-                </div>
+                </Link>
               ))}
             </div>
           </div>
+        </div>
 
-          {/* Quick Actions */}
-          <div className="bg-card-theme rounded-lg shadow p-6 border border-theme">
-            <h2 className="text-xl font-bold text-theme mb-4">Quick Actions</h2>
-            <div className="grid grid-cols-2 gap-4">
-              <button className="bg-blue-500 text-white py-3 px-4 rounded-lg hover:bg-blue-600 transition">
-                Add Expense
-              </button>
-              <button className="bg-green-500 text-white py-3 px-4 rounded-lg hover:bg-green-600 transition">
-                Create Group
-              </button>
-              <button className="bg-purple-500 text-white py-3 px-4 rounded-lg hover:bg-purple-600 transition">
-                Settle Up
-              </button>
-              <button className="bg-gray-500 text-white py-3 px-4 rounded-lg hover:bg-gray-600 transition">
-                View Reports
-              </button>
-            </div>
+        {/* Quick Actions */}
+        <div className="bg-card-theme rounded-lg shadow p-6 border border-theme">
+          <h2 className="text-xl font-bold text-theme mb-4">Quick Actions</h2>
+          <div className="grid grid-cols-2 gap-4">
+            <button className="bg-blue-500 text-white py-3 px-4 rounded-lg hover:bg-blue-600 transition">
+              Add Expense
+            </button>
+            <button className="bg-green-500 text-white py-3 px-4 rounded-lg hover:bg-green-600 transition">
+              Create Group
+            </button>
+            <button className="bg-purple-500 text-white py-3 px-4 rounded-lg hover:bg-purple-600 transition">
+              Settle Up
+            </button>
+            <button className="bg-gray-500 text-white py-3 px-4 rounded-lg hover:bg-gray-600 transition">
+              View Reports
+            </button>
           </div>
         </div>
       </div>

@@ -6,6 +6,7 @@ import HomePage from "./pages/Home";
 import RootLayout from "./layouts/RootLayout";
 import { WalletProvider } from "./hooks/use-wallet";
 import { ThemeProvider } from "./components/ThemeContex";
+import { CollaborationProvider } from "./components/Collaboration";
 
 const router = createBrowserRouter([
   {
@@ -20,6 +21,22 @@ const router = createBrowserRouter([
           return { Component: Dashboard };
         },
       },
+      {
+        path: "/split/:id",
+        lazy: async () => {
+          const { SplitDetailPage } =
+            await import("./pages/SplitView/SplitDetailPage");
+          return { Component: SplitDetailPage };
+        },
+      },
+      {
+        path: "/analytics",
+        lazy: async () => {
+          const { default: AnalyticsDashboard } =
+            await import("./pages/AnalyticsDashboard");
+          return { Component: AnalyticsDashboard };
+        },
+      },
     ],
   },
 ]);
@@ -28,7 +45,9 @@ createRoot(document.getElementById("root")!).render(
   <StrictMode>
     <ThemeProvider>
       <WalletProvider>
-        <RouterProvider router={router} />
+        <CollaborationProvider>
+          <RouterProvider router={router} />
+        </CollaborationProvider>
       </WalletProvider>
     </ThemeProvider>
   </StrictMode>,
