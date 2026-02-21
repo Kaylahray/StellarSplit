@@ -109,4 +109,3 @@ export const ShareModal = ({ isOpen, onClose, splitLink }: ShareModalProps) => {
         </div>
     );
 };
-
