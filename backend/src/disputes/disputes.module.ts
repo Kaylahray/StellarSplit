@@ -8,6 +8,7 @@ import { DisputeEvidence } from '../entities/dispute-evidence.entity';
 import { Split } from '../entities/split.entity';
 import { DisputeNotificationListener } from './listeners/dispute-notification.listener';
 import { DisputeAuditListener } from './listeners/dispute-audit.listener';
+import { BlockchainClient } from './blockchain.client';
 
 @Module({
   imports: [
@@ -19,6 +20,7 @@ import { DisputeAuditListener } from './listeners/dispute-audit.listener';
     DisputesService,
     DisputeNotificationListener,
     DisputeAuditListener,
+    BlockchainClient,
   ],
   exports: [DisputesService],
 })

@@ -6,7 +6,7 @@
   "scripts": {
     "start": "nest start",
     "start:dev": "nest start --watch",
-    "build": "tsc",
+    "build": "tsc -p tsconfig.build.json",
     "dev": "ts-node src/main.ts",
     "dev:watch": "nodemon --exec 'ts-node' src/main.ts",
     "test": "jest",

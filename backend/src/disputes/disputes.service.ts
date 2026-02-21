@@ -27,6 +27,7 @@ import {
   QueryDisputesDto,
   RequestMoreEvidenceDto,
 } from './dto/dispute.dto';
+import { BlockchainClient } from './blockchain.client';
 import {
   DisputeCreatedEvent,
   DisputeEvidenceAddedEvent,
@@ -61,6 +62,7 @@ export class DisputesService {
     private readonly splitRepository: Repository<Split>,
     private readonly dataSource: DataSource,
     private readonly eventEmitter: EventEmitter2,
+    private readonly blockchainClient: BlockchainClient,
   ) {}
 
   /**
@@ -137,6 +139,28 @@ export class DisputesService {
       );
 
       await queryRunner.commitTransaction();
+
+      // Attempt an on-chain freeze (best-effort). Save tx-hash to audit trail.
+      try {
+        const { txHash } = await this.blockchainClient.freezeSplit(
+          fileDisputeDto.splitId,
+          savedDispute.id,
+        );
+
+        savedDispute.auditTrail = savedDispute.auditTrail || [];
+        savedDispute.auditTrail.push({
+          action: 'onchain_freeze',
+          performedBy: raisedBy,
+          performedAt: new Date(),
+          details: { txHash },
+        });
+
+        await this.disputeRepository.save(savedDispute);
+      } catch (err) {
+        this.logger.warn(
+          `On-chain freeze failed for dispute ${savedDispute.id}: ${err instanceof Error ? err.message : String(err)}`,
+        );
+      }
 
       // Emit events (after transaction succeeds)
       this.eventEmitter.emit(
@@ -421,6 +445,32 @@ export class DisputesService {
           `Dispute resolved: ${resolveDisputeDto.outcome}`,
         ),
       );
+
+      // Attempt to execute on-chain resolution (best-effort) and persist tx hash
+      try {
+        const { txHash } = await this.blockchainClient.executeResolution(
+          resolveDisputeDto.disputeId,
+          resolveDisputeDto.outcome,
+          resolveDisputeDto.details || {},
+        );
+
+        // Ensure resolutionOutcome is a concrete object before assigning
+        if (!updatedDispute.resolutionOutcome) {
+          updatedDispute.resolutionOutcome = {
+            outcome: resolveDisputeDto.outcome as any,
+            details: resolveDisputeDto.details || {},
+            executedAt: new Date(),
+            transactionHash: txHash,
+          } as any;
+        } else {
+          (updatedDispute.resolutionOutcome as any).transactionHash = txHash;
+        }
+        await this.disputeRepository.save(updatedDispute);
+      } catch (err) {
+        this.logger.warn(
+          `On-chain resolution failed for dispute ${resolveDisputeDto.disputeId}: ${err instanceof Error ? err.message : String(err)}`,
+        );
+      }
 
       this.logger.log(
         `Dispute ${resolveDisputeDto.disputeId} resolved with outcome: ${resolveDisputeDto.outcome}`,
