@@ -1,18 +1,46 @@
 import { X, ShieldCheck } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { formatCurrency } from '../../utils/format';
+import { useMemo, useState } from 'react';
+import { QRCodeGenerator } from './QRCodeGenerator';
+import { QRCodeScanner } from './QRCodeScanner';
+import { PaymentURIHandler } from './PaymentURIHandler';
+import type { ParsedStellarPaymentURI } from '../../utils/stellar/paymentUri';
 
 interface PaymentModalProps {
     isOpen: boolean;
     onClose: () => void;
     amount: number;
     currency: string;
+    destination: string;
+    splitId: string;
     onConfirm: () => void;
+    onConfirmScannedPayment?: (payment: ParsedStellarPaymentURI) => Promise<void> | void;
     isProcessing?: boolean;
 }
 
-export const PaymentModal = ({ isOpen, onClose, amount, currency, onConfirm, isProcessing }: PaymentModalProps) => {
+export const PaymentModal = ({
+    isOpen,
+    onClose,
+    amount,
+    currency,
+    destination,
+    splitId,
+    onConfirm,
+    onConfirmScannedPayment,
+    isProcessing
+}: PaymentModalProps) => {
     const { t } = useTranslation();
+    const [isScannerOpen, setIsScannerOpen] = useState(false);
+    const [scannedPaymentUri, setScannedPaymentUri] = useState<string | null>(null);
+    const paymentRequest = useMemo(() => ({
+        destination,
+        amount,
+        memo: splitId,
+        memoType: 'text' as const,
+        message: `Split payment for ${splitId}`,
+        splitId,
+    }), [amount, destination, splitId]);
 
     if (!isOpen) return null;
 
@@ -82,6 +110,25 @@ export const PaymentModal = ({ isOpen, onClose, amount, currency, onConfirm, isP
                     </div>
                 </div>
 
+                <QRCodeGenerator paymentRequest={paymentRequest} title="Share Payment QR" />
+
+                <button
+                    type="button"
+                    onClick={() => setIsScannerOpen(true)}
+                    className="mt-3 w-full rounded-xl border border-gray-200 bg-white px-4 py-3 text-sm font-semibold text-gray-800 transition hover:bg-gray-50"
+                >
+                    Scan QR to Pay
+                </button>
+
+                {scannedPaymentUri ? (
+                    <div className="mt-3">
+                        <PaymentURIHandler
+                            paymentURI={scannedPaymentUri}
+                            onPay={onConfirmScannedPayment}
+                        />
+                    </div>
+                ) : null}
+
                 <button
                     onClick={onConfirm}
                     disabled={isProcessing}
@@ -98,6 +145,15 @@ export const PaymentModal = ({ isOpen, onClose, amount, currency, onConfirm, isP
                     )}
                 </button>
             </div>
+
+            <QRCodeScanner
+                isOpen={isScannerOpen}
+                onClose={() => setIsScannerOpen(false)}
+                onConfirm={(payment) => {
+                    setScannedPaymentUri(payment.uri);
+                    setIsScannerOpen(false);
+                }}
+            />
         </div>
     );
 };

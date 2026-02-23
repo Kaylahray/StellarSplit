@@ -14,6 +14,7 @@ import { useCollaboration } from '../../hooks/useCollaboration';
 import { PresenceIndicator, LiveActivityFeed, ConflictResolver } from '../../components/Collaboration';
 import type { Split, Participant } from '../../types';
 import { useTranslation } from 'react-i18next';
+import type { ParsedStellarPaymentURI } from '../../utils/stellar/paymentUri';
 
 // Mock Data
 const MOCK_SPLIT: Split = {
@@ -36,6 +37,7 @@ const MOCK_SPLIT: Split = {
         { name: 'Omakase Selection', price: 150.00 },
     ]
 };
+const MOCK_DESTINATION = 'GDQP2KPQGKIHYJGXNUIYOMHARUARCA6NSWVE2YQYCVY75HL7P5G4U2DI';
 
 export const SplitDetailPage = () => {
     const { t } = useTranslation();
@@ -92,7 +94,7 @@ export const SplitDetailPage = () => {
 
         setIsProcessingPayment(true);
         try {
-            const result = await signAndSubmitPayment(currentUser.amountOwed, 'STELLAR_SPLIT_HUB');
+            const result = await signAndSubmitPayment(currentUser.amountOwed, MOCK_DESTINATION);
             if (result.success) {
                 setPaymentStatus('success');
                 setSplit(prev => {
@@ -119,6 +121,49 @@ export const SplitDetailPage = () => {
             setPaymentStatus('error');
             setTimeout(() => setPaymentStatus('idle'), 3000);
             console.error("Payment failed", error);
+        } finally {
+            setIsProcessingPayment(false);
+        }
+    };
+
+    const handleScannedPayment = async (payment: ParsedStellarPaymentURI) => {
+        const amount = payment.amount ?? currentUser?.amountOwed ?? 0;
+        if (!currentUser || amount <= 0) {
+            throw new Error('Scanned payment does not include a valid amount');
+        }
+
+        setIsProcessingPayment(true);
+        try {
+            const result = await signAndSubmitPayment(amount, payment.destination);
+            if (result.success) {
+                setPaymentStatus('success');
+                setSplit(prev => {
+                    const newParticipants: Participant[] = prev.participants.map(p =>
+                        p.isCurrentUser ? { ...p, status: 'paid' as const } : p
+                    );
+                    const allPaid = newParticipants.every(p => p.status === 'paid');
+                    return {
+                        ...prev,
+                        participants: newParticipants,
+                        status: allPaid ? 'completed' : prev.status
+                    };
+                });
+                sendUpdate({
+                    type: 'payment-status',
+                    payload: { status: 'paid', amount, destination: payment.destination },
+                    userId: 'user-123'
+                });
+                setTimeout(() => {
+                    setIsPaymentModalOpen(false);
+                    setPaymentStatus('idle');
+                }, 1500);
+            } else {
+                throw new Error('Payment submission failed');
+            }
+        } catch (error) {
+            setPaymentStatus('error');
+            setTimeout(() => setPaymentStatus('idle'), 3000);
+            throw error;
         } finally {
             setIsProcessingPayment(false);
         }
@@ -220,7 +265,10 @@ export const SplitDetailPage = () => {
                     onClose={() => setIsPaymentModalOpen(false)}
                     amount={currentUser.amountOwed}
                     currency={split.currency}
+                    destination={MOCK_DESTINATION}
+                    splitId={split.id}
                     onConfirm={handlePayment}
+                    onConfirmScannedPayment={handleScannedPayment}
                     isProcessing={isProcessingPayment}
                 />
             )}
