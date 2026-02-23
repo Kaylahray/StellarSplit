@@ -6,7 +6,7 @@
 #![no_std]
 
 use soroban_sdk::{
-    contract, contractimpl, Address, Env, String, Vec, panic_with_error,
+    contract, contractimpl, Address, Env, Vec, panic_with_error,
 };
 
 mod events;
@@ -87,7 +87,7 @@ impl AchievementBadgesContract {
         env: Env,
         user: Address,
         badge_type: BadgeType,
-    ) -> Result<String, BadgeError> {
+    ) -> Result<u64, BadgeError> {
         // Verify the user is authorizing this call
         user.require_auth();
 
@@ -107,7 +107,7 @@ impl AchievementBadgesContract {
         // Create user badge record
         let badge = UserBadge {
             badge_type: badge_type.clone(),
-            token_id: token_id.clone(),
+            token_id: token_id,
             minted_at: env.ledger().timestamp(),
         };
 

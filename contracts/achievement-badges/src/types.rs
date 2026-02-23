@@ -2,7 +2,7 @@
 //!
 //! This module defines the data structures for the NFT achievement badges system.
 
-use soroban_sdk::{contracterror, contracttype, Address, Env, String, Vec};
+use soroban_sdk::{contracterror, contracttype, String};
 
 /// Types of achievement badges
 #[contracttype]

@@ -53,13 +53,13 @@ fn test_mint_badge() {
 
     // Mint first badge
     let token_id = client.mint_badge(&user, &BadgeType::FirstSplitCreator);
-    assert_eq!(token_id, String::from_str(&env, "1"));
+    assert_eq!(token_id, 1u64);
 
     // Check that user now has the badge
     let user_badges = client.get_user_badges(&user);
     assert_eq!(user_badges.len(), 1);
     assert_eq!(user_badges.get(0).unwrap().badge_type, BadgeType::FirstSplitCreator);
-    assert_eq!(user_badges.get(0).unwrap().token_id, String::from_str(&env, "1"));
+    assert_eq!(user_badges.get(0).unwrap().token_id, 1u64);
 }
 
 #[test]
@@ -94,10 +94,10 @@ fn test_multiple_badges_for_user() {
     assert_eq!(user_badges.len(), 3);
 
     // Check token IDs are unique
-    let token_ids: Vec<String> = user_badges.iter().map(|b| b.token_id.clone()).collect();
-    assert_eq!(token_ids.get(0).unwrap(), String::from_str(&env, "1"));
-    assert_eq!(token_ids.get(1).unwrap(), String::from_str(&env, "2"));
-    assert_eq!(token_ids.get(2).unwrap(), String::from_str(&env, "3"));
+    let token_ids: Vec<u64> = user_badges.iter().map(|b| b.token_id).collect();
+    assert_eq!(token_ids.get(0).unwrap(), 1u64);
+    assert_eq!(token_ids.get(1).unwrap(), 2u64);
+    assert_eq!(token_ids.get(2).unwrap(), 3u64);
 }
 
 #[test]
@@ -152,6 +152,6 @@ fn test_different_users_can_mint_same_badge() {
     assert_eq!(user1_badges.len(), 1);
     assert_eq!(user2_badges.len(), 1);
 
-    assert_eq!(user1_badges.get(0).unwrap().token_id, String::from_str(&env, "1"));
-    assert_eq!(user2_badges.get(0).unwrap().token_id, String::from_str(&env, "2"));
+    assert_eq!(user1_badges.get(0).unwrap().token_id, 1u64);
+    assert_eq!(user2_badges.get(0).unwrap().token_id, 2u64);
 }
