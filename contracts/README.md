@@ -10,6 +10,24 @@ The StellarSplit contracts handle on-chain escrow for bill splitting, enabling t
 
 ```
 contracts/
+├── achievement-badges/     # NFT achievement badges
+│   ├── src/
+│   │   ├── lib.rs          # Badge minting contract
+│   │   ├── types.rs        # Badge types and metadata
+│   │   ├── storage.rs      # Badge storage helpers
+│   │   ├── events.rs       # Badge events
+│   │   └── test.rs         # Badge tests
+│   ├── Cargo.toml          # Rust dependencies
+│   └── README.md           # Badge contract docs
+├── multi-sig-splits/       # Multi-signature with time-locks
+│   ├── src/
+│   │   ├── lib.rs          # Multi-sig contract
+│   │   ├── types.rs        # Multi-sig types
+│   │   ├── storage.rs      # Multi-sig storage
+│   │   ├── events.rs       # Multi-sig events
+│   │   └── test.rs         # Multi-sig tests
+│   ├── Cargo.toml          # Rust dependencies
+│   └── README.md           # Multi-sig contract docs
 ├── split-escrow/           # Main escrow contract
 │   ├── src/
 │   │   ├── lib.rs          # Contract entry point
@@ -20,10 +38,12 @@ contracts/
 │   ├── Cargo.toml          # Rust dependencies
 │   └── README.md           # Contract documentation
 ├── scripts/
-│   ├── build.sh            # Build contract to WASM
-│   ├── deploy.sh           # Deploy to network
-│   └── test.sh             # Run unit tests
-└── README.md               # This file
+│   ├── build.sh                    # Build split-escrow contract
+│   ├── build-achievement-badges.sh # Build achievement badges contract
+│   ├── build-multi-sig-splits.sh   # Build multi-sig splits contract
+│   ├── deploy.sh                   # Deploy to network
+│   └── test.sh                     # Run unit tests
+└── README.md                       # This file
 ```
 
 ## Prerequisites
@@ -49,14 +69,22 @@ cargo install soroban-cli
 
 ## Quick Start
 
-### Build the Contract
+### Build Contracts
 
 ```bash
 cd contracts
+
+# Build main escrow contract
 ./scripts/build.sh
+
+# Build achievement badges contract
+./scripts/build-achievement-badges.sh
+
+# Build multi-signature contract
+./scripts/build-multi-sig-splits.sh
 ```
 
-This compiles the contract to WebAssembly and optionally optimizes it.
+Each script compiles the respective contract to WebAssembly and optionally optimizes it.
 
 ### Run Tests
 
