@@ -25,48 +25,49 @@ const router = createBrowserRouter([
       {
         path: "/split/:id",
         lazy: async () => {
-          const { SplitDetailPage } =
-            await import("./pages/SplitView/SplitDetailPage");
+          const { SplitDetailPage } = await import("./pages/SplitView/SplitDetailPage");
           return { Component: SplitDetailPage };
         },
       },
       {
         path: "/analytics",
         lazy: async () => {
-          const { default: AnalyticsDashboard } =
-            await import("./pages/AnalyticsDashboard");
+          const { default: AnalyticsDashboard } = await import("./pages/AnalyticsDashboard");
           return { Component: AnalyticsDashboard };
         },
       },
       {
         path: "/split-groups",
         lazy: async () => {
-          const { default: SplitGroup } =
-            await import("./pages/SplitGroup");
+          const { default: SplitGroup } = await import("./pages/SplitGroup");
           return { Component: SplitGroup };
+        },
+      },
+      {
         path: "/history",
         lazy: async () => {
-          const { default: SplitHistoryPage } = await import(
-            "./pages/SplitHistoryPage"
-          );
+          const { default: SplitHistoryPage } = await import("./pages/SplitHistoryPage");
           return { Component: SplitHistoryPage };
+        },
+      },
+      {
+        path: "/pay",
+        lazy: async () => {
+          const { default: PaymentURIPage } = await import("./pages/PaymentURIPage");
+          return { Component: PaymentURIPage };
         },
       },
       {
         path: "/create-split",
         lazy: async () => {
-          const { SplitCreationWizard } = await import(
-            "./components/SplitWizard"
-          );
+          const { SplitCreationWizard } = await import("./components/SplitWizard");
           return { Component: SplitCreationWizard };
         },
       },
       {
         path: "/notifications",
         lazy: async () => {
-          const { default: NotificationCenterPage } = await import(
-            "./pages/NotificationCenterPage"
-          );
+          const { default: NotificationCenterPage } = await import("./pages/NotificationCenterPage");
           return { Component: NotificationCenterPage };
         },
       },
