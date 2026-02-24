@@ -1,92 +1,39 @@
-import {
-  Controller,
-  Post,
-  UseInterceptors,
-  UploadedFile,
-  BadRequestException,
-  Logger,
-  HttpCode,
-  HttpStatus,
-} from "@nestjs/common";
-import { FileInterceptor } from "@nestjs/platform-express";
-import {
-  ApiTags,
-  ApiOperation,
-  ApiConsumes,
-  ApiBody,
-  ApiResponse,
-} from "@nestjs/swagger";
-import { OcrService } from "../ocr/ocr.service";
-import { ScanReceiptResponseDto } from "./dto/scan-receipt-response.dto";
-import { MulterFile } from "@/types/multer";
+import { Controller, Post, Get, Delete, Param, UploadedFile, UseInterceptors, Req } from '@nestjs/common';
+import { FileInterceptor } from '@nestjs/platform-express';
+import { ReceiptsService } from './receipts.service';
 
-@ApiTags("Receipts")
-@Controller("receipts")
+@Controller('api/receipts')
 export class ReceiptsController {
-  private readonly logger = new Logger(ReceiptsController.name);
+  constructor(private readonly service: ReceiptsService) {}
 
-  constructor(private readonly ocrService: OcrService) {}
+  @Post('upload/:splitId')
+  @UseInterceptors(FileInterceptor('file'))
+  async upload(@Param('splitId') splitId: string, @UploadedFile() file: Express.Multer.File, @Req() req) {
+    return this.service.upload(splitId, file, req.user.walletAddress);
+  }
 
-  @Post("scan")
-  @HttpCode(HttpStatus.OK)
-  @UseInterceptors(FileInterceptor("image"))
-  @ApiOperation({
-    summary: "Scan receipt image with OCR",
-    description:
-      "Upload a receipt image to extract items, prices, and totals using OCR",
-  })
-  @ApiConsumes("multipart/form-data")
-  @ApiBody({
-    schema: {
-      type: "object",
-      properties: {
-        image: {
-          type: "string",
-          format: "binary",
-          description: "Receipt image file (JPEG, PNG, etc.)",
-        },
-      },
-      required: ["image"],
-    },
-  })
-  @ApiResponse({
-    status: 200,
-    description: "Receipt successfully scanned and parsed",
-    type: ScanReceiptResponseDto,
-  })
-  @ApiResponse({
-    status: 400,
-    description: "Invalid image file or OCR processing failed",
-  })
-  async scanReceipt(
-    @UploadedFile() file: MulterFile
-  ): Promise<ScanReceiptResponseDto> {
-    if (!file) {
-      throw new BadRequestException("No image file provided");
-    }
+  @Get('split/:splitId')
+  async listBySplit(@Param('splitId') splitId: string) {
+    return this.service.listBySplit(splitId);
+  }
 
-    const allowedMimeTypes = [
-      "image/jpeg",
-      "image/jpg",
-      "image/png",
-      "image/webp",
-    ];
-    if (!allowedMimeTypes.includes(file.mimetype)) {
-      throw new BadRequestException(
-        `Invalid file type. Allowed types: ${allowedMimeTypes.join(", ")}`
-      );
-    }
+  @Get(':receiptId/signed-url')
+  async signedUrl(@Param('receiptId') receiptId: string) {
+    return this.service.getSignedUrl(receiptId);
+  }
 
-    const maxSize = 10 * 1024 * 1024; // 10MB
-    if (file.size > maxSize) {
-      throw new BadRequestException("File size exceeds maximum limit of 10MB");
-    }
+  @Delete(':receiptId')
+  async delete(@Param('receiptId') receiptId: string) {
+    return this.service.softDelete(receiptId);
+  }
 
-    this.logger.log(
-      `Processing receipt image: ${file.originalname} (${file.size} bytes)`
-    );
+  @Get(':receiptId/ocr-data')
+  async ocrData(@Param('receiptId') receiptId: string) {
+    return this.service.getOcrData(receiptId);
+  }
 
-    const result = await this.ocrService.scanReceipt(file.buffer!);
-    return result;
+  @Post(':receiptId/reprocess-ocr')
+  async reprocessOcr(@Param('receiptId') receiptId: string) {
+    return this.service.reprocessOcr(receiptId);
   }
 }
