@@ -59,63 +59,76 @@ export default function DashboardPage() {
   ];
 
   return (
-    <div className="min-h-screen bg-theme p-6">
+    <main
+      className="min-h-dvh bg-theme [padding-top:calc(clamp(1rem,3vw,1.5rem)+env(safe-area-inset-top))] [padding-right:calc(clamp(0.75rem,4vw,1.5rem)+env(safe-area-inset-right))] [padding-bottom:calc(clamp(1rem,3vw,1.5rem)+env(safe-area-inset-bottom))] [padding-left:calc(clamp(0.75rem,4vw,1.5rem)+env(safe-area-inset-left))]"
+      aria-label="Dashboard"
+    >
       <div className="max-w-7xl mx-auto">
+
         {/* ── Header ── */}
-        <div className="mb-8">
-          <h1 className="text-3xl font-bold text-theme">{t("dashboard.title")}</h1>
-          <p className="text-muted-theme mt-1">
+        <header className="mb-[clamp(1.25rem,4vw,2rem)]">
+          <h1 className="text-[clamp(1.375rem,5vw,1.875rem)] font-bold leading-tight text-theme">
+            {t("dashboard.title")}
+          </h1>
+          <p className="text-sm text-muted-theme mt-0.5">
             {t("dashboard.welcome")}
           </p>
-        </div>
+        </header>
 
         {/* ── Stat Cards ── */}
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-6 mb-[clamp(1.25rem,4vw,2rem)]">
           {stats.map((stat, index) => {
             const Icon = stat.icon;
             return (
               <div
                 key={index}
-                className="bg-card-theme rounded-lg shadow p-6 border border-theme"
+                className="bg-card-theme rounded-xl shadow-sm p-4 sm:p-6 border border-theme overflow-hidden"
               >
-                <div className="flex items-center justify-between mb-4">
-                  <div className={`${stat.color} p-3 rounded-lg`}>
-                    <Icon className="w-6 h-6 text-white" />
+                <div className="mb-3">
+                  <div className={`${stat.color} p-2.5 rounded-lg w-fit`}>
+                    <Icon className="w-5 h-5 text-white" aria-hidden="true" />
                   </div>
                 </div>
-                <h3 className="text-muted-theme text-sm font-medium">
+                <h3 className="text-muted-theme text-xs sm:text-sm font-medium leading-snug truncate">
                   {stat.title}
                 </h3>
-                <p className="text-2xl font-bold text-theme mt-1">
+                <p className="text-xl sm:text-2xl font-bold text-theme mt-1 tabular-nums truncate">
                   {stat.value}
                 </p>
-                <p className="text-sm text-muted-theme mt-2">{stat.change}</p>
+                <p className="text-xs sm:text-sm text-muted-theme mt-1.5 truncate">
+                  {stat.change}
+                </p>
               </div>
             );
           })}
         </div>
 
         {/* ── Bottom Grid ── */}
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-3 sm:gap-6">
+
           {/* Recent Activity */}
-          <div className="bg-card-theme rounded-lg shadow p-6 border border-theme">
-            <h2 className="text-xl font-bold text-theme mb-4">
+          <div className="bg-card-theme rounded-xl shadow-sm p-4 sm:p-6 border border-theme">
+            <h2 className="text-lg sm:text-xl font-bold text-theme mb-4">
               {t("dashboard.recentActivity")}
             </h2>
-            <div className="space-y-4">
+            <div className="space-y-0">
               {recentActivity.map((activity, index) => (
                 <Link
                   to={`/split/split_${index + 123}`}
                   key={index}
-                  className="flex items-center justify-between py-3 border-b border-theme last:border-b-0"
+                  className="flex items-center justify-between min-h-[2.75rem] py-3 border-b border-theme last:border-b-0 gap-3 focus-visible:outline focus-visible:outline-2 focus-visible:outline-blue-500 focus-visible:outline-offset-2 focus-visible:rounded-md [-webkit-tap-highlight-color:transparent] active:opacity-70 transition-opacity"
                 >
-                  <div>
-                    <p className="font-medium text-theme">{activity.name}</p>
-                    <p className="text-sm text-muted-theme">
+                  <div className="min-w-0">
+                    <p className="font-medium text-theme text-sm sm:text-base truncate">
+                      {activity.name}
+                    </p>
+                    <p className="text-xs sm:text-sm text-muted-theme mt-0.5 truncate">
                       {activity.group} • {activity.date}
                     </p>
                   </div>
-                  <p className="font-semibold text-theme">{activity.amount}</p>
+                  <p className="font-semibold text-theme text-sm sm:text-base tabular-nums shrink-0 truncate">
+                    {activity.amount}
+                  </p>
                 </Link>
               ))}
             </div>
@@ -135,15 +148,20 @@ export default function DashboardPage() {
             <button className="bg-green-500 text-white py-3 px-4 rounded-lg hover:bg-green-600 transition">
               {t("dashboard.actions.createGroup")}
             </button>
-            <button className="bg-purple-500 text-white py-3 px-4 rounded-lg hover:bg-purple-600 transition">
+            <button
+              className="inline-flex items-center justify-center min-h-[2.75rem] px-4 rounded-lg bg-purple-500 truncate text-white text-sm font-medium transition-colors hover:bg-purple-600 focus-visible:outline focus-visible:outline-2 focus-visible:outline-purple-500 focus-visible:outline-offset-2 active:scale-[0.97] [-webkit-tap-highlight-color:transparent] select-none"
+            >
               {t("dashboard.actions.settleUp")}
             </button>
-            <button className="bg-gray-500 text-white py-3 px-4 rounded-lg hover:bg-gray-600 transition">
+            <button
+              className="inline-flex items-center justify-center min-h-[2.75rem] px-4 rounded-lg bg-gray-500 truncate text-white text-sm font-medium transition-colors hover:bg-gray-600 focus-visible:outline focus-visible:outline-2 focus-visible:outline-gray-500 focus-visible:outline-offset-2 active:scale-[0.97] [-webkit-tap-highlight-color:transparent] select-none"
+            >
               {t("dashboard.actions.viewReports")}
             </button>
           </div>
         </div>
+
       </div>
-    </div>
+    </main>
   );
 }

@@ -50,6 +50,7 @@ const router = createBrowserRouter([
           return { Component: SplitHistoryPage };
         },
       },
+
       {
         path: "/pay",
         lazy: async () => {
