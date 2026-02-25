@@ -31,6 +31,8 @@ import { ExportModule } from './export/export.module';
 import { WebhooksModule } from "./webhooks/webhooks.module";
 import { DisputesModule } from './disputes/disputes.module';
 import { GovernanceModule } from './governance/governance.module';
+import { SettlementModule } from "./settlement/settlement.module";
+import { TemplatesModule } from "./templates/templates.module";
 // Load environment variables
 dotenv.config({
   path: path.resolve(__dirname, '../.env'),
@@ -41,7 +43,7 @@ dotenv.config({
     // ✅ Config
     ConfigModule.forRoot({
       isGlobal: true,
-      envFilePath: ['.env', '.env.local'],
+      envFilePath: [".env", ".env.local"],
       load: [appConfig, databaseConfig],
     }),
 
@@ -52,15 +54,15 @@ dotenv.config({
     TypeOrmModule.forRootAsync({
       inject: [ConfigService],
       useFactory: (configService: ConfigService) => {
-        const dbConfig = configService.get('database');
+        const dbConfig = configService.get("database");
         return {
-          type: 'postgres',
+          type: "postgres",
           host: dbConfig.host,
           port: dbConfig.port,
           username: dbConfig.username,
           password: dbConfig.password,
           database: dbConfig.name,
-          entities: [path.join(__dirname, '**/*.entity{.ts,.js}')],
+          entities: [path.join(__dirname, "**/*.entity{.ts,.js}")],
           synchronize: dbConfig.synchronize,
           logging: dbConfig.logging,
         };
@@ -72,8 +74,8 @@ dotenv.config({
       inject: [ConfigService],
       useFactory: (configService: ConfigService) => ({
         redis: {
-          host: configService.get('REDIS_HOST', 'localhost'),
-          port: configService.get('REDIS_PORT', 6379),
+          host: configService.get("REDIS_HOST", "localhost"),
+          port: configService.get("REDIS_PORT", 6379),
         },
       }),
     }),
@@ -103,6 +105,8 @@ dotenv.config({
     DisputesModule,
     // DAO Governance system for platform decisions
     GovernanceModule,
+    SettlementModule,
+    TemplatesModule,
   ],
 })
 export class AppModule {}
