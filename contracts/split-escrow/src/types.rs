@@ -7,7 +7,6 @@
 //! types as specified in issue #59.
 
 use soroban_sdk::{contracterror, contracttype, Address, Env, String, Vec};
-use soroban_sdk::{Env, Symbol, Vec, Address};
 // ============================================
 // Original Types (preserved for compatibility)
 // ============================================
@@ -32,15 +31,19 @@ pub enum SplitStatus {
 
 /// A participant in a split
 ///
-/// I'm tracking both the owed amount and paid amount separately
-/// to support partial payments and payment verification.
+/// Extended in issue #201 to track the asset (token contract address)
+/// each participant will pay with, enabling multi-asset escrows.
 #[contracttype]
 #[derive(Clone, Debug)]
 pub struct Participant {
     /// The participant's Stellar address
     pub address: Address,
 
-    /// The amount this participant owes
+    /// The token contract address this participant will pay with
+    /// (must be on the contract's approved-asset list)
+    pub asset: Address,
+
+    /// The amount this participant owes (in the units of `asset`)
     pub share_amount: i128,
 
     /// The amount this participant has paid so far
@@ -85,7 +88,8 @@ pub struct Split {
     pub created_at: u64,
 }
 
-/// Contract errors
+/// Rewards status for user rewards
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
 #[contracttype]
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
 #[repr(u32)]
@@ -222,7 +226,7 @@ pub struct PriceSubmission {
 pub struct ConsensusPrice {
     pub asset_pair: String,
     pub price: i128,
-    pub confidence: u32, // BPS (e.g. 9500 for 95%)
+    pub confidence: i128, // scaled: 0-10000 = 0%-100%
     pub participating_oracles: u32,
     pub timestamp: u64,
 }
@@ -254,8 +258,7 @@ pub struct BridgeTransaction {
 }
 
 #[contracterror]
-#[derive(Copy, Clone, Debug, Eq, PartialEq, PartialOrd, Ord)]
-#[repr(u32)]
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
 pub enum Error {
     SplitNotFound = 1,
     SplitCancelled = 2,
@@ -291,12 +294,11 @@ pub enum Error {
     BridgeAlreadyExists = 32,
     InvalidBridgeStatus = 33,
     ProofInvalid = 34,
-    EscrowNotRefundable = 35,
-    ParticipantAlreadyRefunded = 36,
-    SplitNotCompleted = 37,
+    /// Asset is not on the approved-asset list
+    AssetNotApproved = 35,
 }
 
-// No manual From implementation needed for #[contracterror]
+
 
 /// Configuration for the contract
 ///

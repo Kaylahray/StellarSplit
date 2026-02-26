@@ -9,7 +9,18 @@
 use soroban_sdk::{contracttype, Address, Env, String, symbol_short, Vec, Symbol};
 use crate::types::*;
 
-// Redundant legacy helpers removed. We use DataKey/StorageKey now.
+
+const ADMIN: Symbol = symbol_short!("ADMIN");
+const INIT: Symbol = symbol_short!("INIT");
+
+pub fn is_initialized(env: &Env) -> bool {
+    env.storage().instance().has(&INIT)
+}
+
+pub fn set_initialized(env: &Env) {
+    env.storage().instance().set(&INIT, &true);
+}
+
 
 // ============================================
 // Original Storage Keys
@@ -28,11 +39,15 @@ pub enum DataKey {
     /// A split record, indexed by ID
     Split(u64),
 
-    /// The token contract address used for escrow
+    /// The token contract address used for escrow (legacy single-asset)
     Token,
 
     /// Whether the contract is initialized
     Initialized,
+
+    /// Approved asset allowlist entry — stores bool `true` for each approved token
+    /// Added in issue #201: Multi-Asset Escrow Support
+    ApprovedAsset(Address),
 }
 
 // ============================================
@@ -147,6 +162,37 @@ pub fn set_token(env: &Env, token: &Address) {
         LEDGER_TTL_THRESHOLD,
         LEDGER_TTL_PERSISTENT,
     );
+}
+
+// ============================================
+// Approved Asset Allowlist (Issue #201)
+// ============================================
+
+/// Check whether a token contract is approved for use in multi-asset escrows
+pub fn is_asset_approved(env: &Env, asset: &Address) -> bool {
+    env.storage()
+        .persistent()
+        .get::<_, bool>(&DataKey::ApprovedAsset(asset.clone()))
+        .unwrap_or(false)
+}
+
+/// Approve a token contract for use in multi-asset escrows (admin only — enforced in lib.rs)
+pub fn set_asset_approved(env: &Env, asset: &Address) {
+    env.storage()
+        .persistent()
+        .set(&DataKey::ApprovedAsset(asset.clone()), &true);
+    env.storage().persistent().extend_ttl(
+        &DataKey::ApprovedAsset(asset.clone()),
+        LEDGER_TTL_THRESHOLD,
+        LEDGER_TTL_PERSISTENT,
+    );
+}
+
+/// Revoke a token contract from the approved-asset allowlist
+pub fn set_asset_revoked(env: &Env, asset: &Address) {
+    env.storage()
+        .persistent()
+        .remove(&DataKey::ApprovedAsset(asset.clone()));
 }
 
 // ============================================
@@ -455,11 +501,10 @@ pub fn add_insurance_claim(env: &Env, insurance_id: &String, claim_id: &String) 
         .extend_ttl(&key, LEDGER_TTL_THRESHOLD, LEDGER_TTL_PERSISTENT);
 }
 
+/// Get all claim IDs for an insurance policy
 pub fn get_insurance_claims(env: &Env, insurance_id: &String) -> Vec<String> {
-    env.storage()
-        .persistent()
-        .get(&StorageKey::InsuranceClaims(insurance_id.clone()))
-        .unwrap_or_else(|| Vec::new(env))
+    let key = StorageKey::InsuranceClaims(insurance_id.clone());
+    env.storage().persistent().get(&key).unwrap_or(Vec::new(env))
 }
 
 /// Storage keys for rewards system
@@ -509,10 +554,10 @@ pub fn get_next_activity_id(env: &Env) -> u64 {
     id
 }
 
-/// Storage keys for oracle system
+/// Storage keys for verification oracle system
 #[derive(Clone)]
 #[contracttype]
-pub enum OracleStorageKey {
+pub enum VerificationStorageKey {
     VerificationRequest(String),
     OracleConfig,
     VerificationCounter,
@@ -524,37 +569,37 @@ pub enum OracleStorageKey {
 
 /// Get verification request
 pub fn get_verification_request(env: &Env, verification_id: &String) -> Option<VerificationRequest> {
-    let key = OracleStorageKey::VerificationRequest(verification_id.clone());
+    let key = VerificationStorageKey::VerificationRequest(verification_id.clone());
     env.storage().persistent().get(&key)
 }
 
 /// Set verification request
 pub fn set_verification_request(env: &Env, verification_id: &String, request: &VerificationRequest) {
-    let key = OracleStorageKey::VerificationRequest(verification_id.clone());
+    let key = VerificationStorageKey::VerificationRequest(verification_id.clone());
     env.storage().persistent().set(&key, request);
 }
 
 /// Check if verification request exists
 pub fn has_verification_request(env: &Env, verification_id: &String) -> bool {
-    let key = OracleStorageKey::VerificationRequest(verification_id.clone());
+    let key = VerificationStorageKey::VerificationRequest(verification_id.clone());
     env.storage().persistent().has(&key)
 }
 
 /// Get oracle configuration
 pub fn get_oracle_config(env: &Env) -> Option<OracleConfig> {
-    let key = OracleStorageKey::OracleConfig;
+    let key = VerificationStorageKey::OracleConfig;
     env.storage().persistent().get(&key)
 }
 
 /// Set oracle configuration
 pub fn set_oracle_config(env: &Env, config: &OracleConfig) {
-    let key = OracleStorageKey::OracleConfig;
+    let key = VerificationStorageKey::OracleConfig;
     env.storage().persistent().set(&key, config);
 }
 
 /// Get next verification ID
 pub fn get_next_verification_id(env: &Env) -> String {
-    let key = OracleStorageKey::VerificationCounter;
+    let key = VerificationStorageKey::VerificationCounter;
     let counter = env.storage().persistent().get(&key).unwrap_or(0u64);
     env.storage().persistent().set(&key, &(counter + 1));
     
@@ -704,4 +749,3 @@ pub fn get_next_bridge_id(env: &Env) -> String {
     env.storage().persistent().set(&key, &(counter + 1));
     format_number_as_string(&env, counter)
 }
-
