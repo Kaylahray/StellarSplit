@@ -1,56 +1,27 @@
-//! # Split Escrow Contract
-//!
-//! I designed this contract to handle bill splitting escrow on the Stellar network.
-//! It manages the lifecycle of splits from creation through fund release or cancellation.
-//!
-//! ## Core Functionality
-//! - Create splits with multiple participants
-//! - Accept deposits from participants
-//! - Release funds when split is complete
-//! - Cancel and refund if needed
-
-#![no_std]
-
 use soroban_sdk::{
     contract, contractimpl, Address, Env, String, Vec, token, Map,
     token::Client as TokenClient,
 };
 
-mod events;
 mod storage;
 mod types;
+mod events;
 
 #[cfg(test)]
 mod test;
 
-pub use events::*;
-pub use storage::*;
-pub use types::*;
+use crate::types::{
+    SplitEscrow, EscrowParticipant, EscrowStatus, Error,
+};
 
-/// The main Split Escrow contract
-///
-/// I'm keeping the initial implementation minimal - just the structure and
-/// placeholder methods. The actual business logic will be implemented in
-/// subsequent issues as we build out the escrow functionality.
 #[contract]
 pub struct SplitEscrowContract;
 
 #[contractimpl]
 impl SplitEscrowContract {
-    /// Initialize the contract with an admin address
-    ///
-    /// I'm making this the first function to call after deployment.
-    /// It sets up the contract administrator who can manage global settings.
+    /// Initialize the contract with an admin and token address
     pub fn initialize(env: Env, admin: Address, token: Address) {
-        // Ensure the contract hasn't been initialized already
-        if storage::has_admin(&env) {
-            panic!("Contract already initialized");
-        }
-
-        // Verify the admin is authorizing this call
         admin.require_auth();
-
-        // Store the admin address
         storage::set_admin(&env, &admin);
 
         // Store the legacy default token address and also auto-approve it
@@ -100,7 +71,10 @@ impl SplitEscrowContract {
         // Verify the creator is authorizing this call
         creator.require_auth();
 
-        // Validate inputs
+        if storage::is_paused(&env) {
+            panic!("Contract is paused");
+        }
+
         if participant_addresses.len() != participant_shares.len() {
             panic!("Participant addresses and shares must have the same length");
         }
@@ -111,7 +85,6 @@ impl SplitEscrowContract {
             panic!("At least one participant is required");
         }
 
-        // Validate shares sum to total
         let mut shares_sum: i128 = 0;
         for i in 0..participant_shares.len() {
             shares_sum += participant_shares.get(i).unwrap();
@@ -134,34 +107,32 @@ impl SplitEscrowContract {
         // Create participant entries (now includes per-participant asset)
         let mut participants = Vec::new(&env);
         for i in 0..participant_addresses.len() {
-            let participant = Participant {
+            let participant = EscrowParticipant {
                 address: participant_addresses.get(i).unwrap(),
                 asset: participant_assets.get(i).unwrap(),
                 share_amount: participant_shares.get(i).unwrap(),
                 amount_paid: 0,
-                has_paid: false,
+                paid_at: None,
             };
             participants.push_back(participant);
         }
 
-        // Create the split
-        let split = Split {
-            id: split_id,
+        let escrow = SplitEscrow {
+            split_id: split_id.clone(),
             creator: creator.clone(),
-            description,
+            requester: creator.clone(),
+            description: description.clone(),
             total_amount,
             amount_collected: 0,
-            amount_released: 0,
             participants,
-            status: SplitStatus::Pending,
+            status: EscrowStatus::Active,
+            deadline: deadline,
             created_at: env.ledger().timestamp(),
         };
 
-        // Store the split
-        storage::set_split(&env, split_id, &split);
+        storage::set_escrow(&env, &split_id, &escrow);
 
-        // Emit creation event
-        events::emit_split_created(&env, split_id, &creator, total_amount);
+        events::emit_split_created(&env, split_id_num, &creator, total_amount);
 
         split_id
     }
@@ -174,16 +145,26 @@ impl SplitEscrowContract {
         // Verify the participant is authorizing this call
         participant.require_auth();
 
-        // Get the split
-        let mut split = storage::get_split(&env, split_id);
+        if storage::is_paused(&env) {
+            panic!("Contract is paused");
+        }
+
+        let mut escrow = storage::get_escrow(&env, &split_id_str).expect("Escrow not found");
+
+        if escrow.status == EscrowStatus::Active && env.ledger().timestamp() > escrow.deadline {
+            escrow.status = EscrowStatus::Expired;
+        }
 
         if amount <= 0 {
             panic!("Deposit amount must be positive");
         }
 
-        // Verify the split is still accepting deposits
-        if split.status != SplitStatus::Pending && split.status != SplitStatus::Active {
-            panic!("Split is not accepting deposits");
+        if escrow.status == EscrowStatus::Expired {
+            panic!("Escrow has expired");
+        }
+
+        if escrow.status != EscrowStatus::Active {
+            panic!("Escrow is not active");
         }
 
         // Find the participant in the split and capture their asset
@@ -191,11 +172,11 @@ impl SplitEscrowContract {
         let mut participant_asset: Option<Address> = None;
         let mut updated_participants = Vec::new(&env);
 
-        for i in 0..split.participants.len() {
-            let mut p = split.participants.get(i).unwrap();
+        for i in 0..escrow.participants.len() {
+            let mut p = escrow.participants.get(i).unwrap();
             if p.address == participant {
                 found = true;
-                let remaining = p.share_amount - p.amount_paid;
+                let remaining = p.amount_owed - p.amount_paid;
                 if amount > remaining {
                     panic!("Deposit exceeds remaining amount owed");
                 }
@@ -203,13 +184,15 @@ impl SplitEscrowContract {
                 participant_asset = Some(p.asset.clone());
 
                 p.amount_paid += amount;
-                p.has_paid = p.amount_paid >= p.share_amount;
+                if p.amount_paid >= p.amount_owed {
+                    p.paid_at = Some(env.ledger().timestamp());
+                }
             }
             updated_participants.push_back(p);
         }
 
         if !found {
-            panic!("Participant not found in split");
+            panic!("Participant not found in escrow");
         }
 
         // Transfer tokens from participant to escrow using the participant's own asset
@@ -218,88 +201,33 @@ impl SplitEscrowContract {
         let contract_address = env.current_contract_address();
         token_client.transfer(&participant, &contract_address, &amount);
 
-        // Update split state
-        split.participants = updated_participants;
-        split.amount_collected += amount;
+        escrow.participants = updated_participants;
+        escrow.amount_collected += amount;
 
         // Transition from Pending → Active on first deposit
         if split.status == SplitStatus::Pending {
             split.status = SplitStatus::Active;
         }
 
-        // Save the updated split
-        storage::set_split(&env, split_id, &split);
+        storage::set_escrow(&env, &split_id_str, &escrow);
 
         // Emit multi-asset PaymentReceived event (issue #201)
         events::emit_payment_received(&env, split_id, &participant, &asset_address, amount);
         // Also emit legacy deposit event for backwards compatibility
         events::emit_deposit_received(&env, split_id, &participant, amount);
 
-        // Auto-release funds if fully funded
-        if Self::is_fully_funded_internal(&split) {
-            let _ = Self::release_funds_internal(&env, split_id, split);
+        if escrow.is_fully_funded() {
+            let _ = Self::release_funds_internal(&env, split_id_str, escrow);
         }
     }
 
     /// Release funds from a completed split to the creator
-    ///
-    /// I'm restricting this to completed splits only for safety.
-    pub fn release_funds(env: Env, split_id: u64) -> Result<(), Error> {
-        if !storage::has_split(&env, split_id) {
-            return Err(Error::SplitNotFound);
+    pub fn release_funds(env: Env, split_id_str: String) -> Result<(), Error> {
+        if storage::is_paused(&env) {
+            panic!("Contract is paused");
         }
 
-        let split = storage::get_split(&env, split_id);
-        Self::release_funds_internal(&env, split_id, split).map(|_| ())
-    }
-
-    /// Release available funds to the creator for partial payments
-    pub fn release_partial(env: Env, split_id: u64) -> Result<i128, Error> {
-        if !storage::has_split(&env, split_id) {
-            return Err(Error::SplitNotFound);
-        }
-
-        let mut split = storage::get_split(&env, split_id);
-
-        if split.status == SplitStatus::Cancelled {
-            return Err(Error::SplitCancelled);
-        }
-
-        if split.status == SplitStatus::Released {
-            return Err(Error::SplitReleased);
-        }
-
-        if Self::is_fully_funded_internal(&split) {
-            return Err(Error::SplitFullyFunded);
-        }
-
-        let available = split.amount_collected - split.amount_released;
-        if available <= 0 {
-            return Err(Error::NoFundsAvailable);
-        }
-
-        let token_address = storage::get_token(&env);
-        let token_client = token::Client::new(&env, &token_address);
-        let contract_address = env.current_contract_address();
-        token_client.transfer(&contract_address, &split.creator, &available);
-
-        split.amount_released += available;
-        storage::set_split(&env, split_id, &split);
-
-        events::emit_funds_released(
-            &env,
-            split_id,
-            &split.creator,
-            available,
-            env.ledger().timestamp(),
-        );
-
-        Ok(available)
-    }
-
-    /// Check if a split is fully funded
-    pub fn is_fully_funded(env: Env, split_id: u64) -> Result<bool, Error> {
-        if !storage::has_split(&env, split_id) {
+        if !storage::has_escrow(&env, &split_id_str) {
             return Err(Error::SplitNotFound);
         }
 
@@ -474,36 +402,22 @@ impl SplitEscrowContract {
         total_rewards
     }
 
-    /// Claim rewards for a user
-    ///
-    /// This function allows users to claim their earned rewards.
-    pub fn claim_rewards(
-        env: Env,
-        user: Address,
-    ) -> Result<i128, Error> {
-        // Get caller's address (require_auth for the caller)
-        let caller = env.current_contract_address();
-        caller.require_auth();
-
-        // Ensure caller is claiming their own rewards
-        if caller != user {
-            return Err(Error::UserNotFound);
+    /// Claim a refund for a cancelled or expired split
+    pub fn claim_refund(env: Env, split_id_str: String, participant: Address) -> Result<i128, Error> {
+        if storage::is_paused(&env) {
+            panic!("Contract is paused");
         }
 
-        // Get user rewards data
-        let mut rewards = storage::get_user_rewards(&env, &user)
-            .ok_or(Error::UserNotFound)?;
+        let mut escrow = storage::get_escrow(&env, &split_id_str).expect("Escrow not found");
 
-        // Check if user is eligible for rewards
-        if rewards.status != types::RewardsStatus::Active {
-            return Err(Error::RewardsAlreadyClaimed);
+        // Check if escrow is in a refundable state
+        if escrow.status == EscrowStatus::Active && env.ledger().timestamp() > escrow.deadline {
+            escrow.status = EscrowStatus::Expired;
+            storage::set_escrow(&env, &split_id_str, &escrow);
         }
 
-        // Calculate available rewards
-        let available_rewards = rewards.rewards_earned - rewards.rewards_claimed;
-        
-        if available_rewards <= 0 {
-            return Err(Error::InsufficientRewards);
+        if escrow.status != EscrowStatus::Cancelled && escrow.status != EscrowStatus::Expired {
+            return Err(Error::EscrowNotRefundable);
         }
 
         // Update claimed rewards
@@ -538,13 +452,21 @@ impl SplitEscrowContract {
         // Check if split exists
         let split_id_num = 123; // Simplified for testing
 
-        if !storage::has_split(&env, split_id_num) {
-            return Err(Error::SplitNotFound);
-        }
+        for i in 0..escrow.participants.len() {
+            let mut p = escrow.participants.get(i).unwrap();
+            if p.address == participant {
+                found = true;
+                participant.require_auth();
+                
+                if p.amount_paid <= 0 {
+                    return Err(Error::NoFundsAvailable);
+                }
 
-        // Check if verification already exists
-        if storage::has_verification_request(&env, &split_id) {
-            return Err(Error::VerificationAlreadyExists);
+                refund_amount = p.amount_paid;
+                p.amount_paid = 0;
+                p.paid_at = None;
+            }
+            updated_participants.push_back(p);
         }
 
         // Generate verification ID
@@ -597,9 +519,8 @@ impl SplitEscrowContract {
             return Err(Error::OracleNotAuthorized);
         }
 
-        // Check if verification is still pending
-        if request.status != types::VerificationStatus::Pending {
-            return Err(Error::InvalidVerificationStatus);
+        if refund_amount <= 0 {
+             return Err(Error::NoFundsAvailable);
         }
 
         // Update verification request
@@ -615,231 +536,74 @@ impl SplitEscrowContract {
             request.rejection_reason = Some(String::from_str(&env, "Evidence insufficient"));
         }
 
-        // Store updated request
-        storage::set_verification_request(&env, &verification_id, &request);
+        escrow.participants = updated_participants;
+        escrow.amount_collected -= refund_amount;
+        storage::set_escrow(&env, &split_id_str, &escrow);
 
-        // Emit verification completed event
-        events::emit_verification_completed(&env, &verification_id, verified, &caller);
+        events::emit_refund_issued(&env, 0, participant, refund_amount);
 
-        Ok(())
+        Ok(refund_amount)
     }
 
-    /// Create atomic swap for instant split settlements
-    ///
-    /// This function creates a hash-time-locked contract for atomic swaps.
-    pub fn create_swap(
-        env: Env,
-        participant_a: Address,
-        participant_b: Address,
-        amount_a: i128,
-        amount_b: i128,
-        hash_lock: String,
-        time_lock: u64,
-    ) -> Result<String, Error> {
-        // Get caller's address (require_auth for the caller)
-        let caller = env.current_contract_address();
-        caller.require_auth();
-
-        // Validate inputs
-        if amount_a <= 0 || amount_b <= 0 {
-            return Err(Error::InvalidAmount);
+    /// Cancel a split and mark for refunds
+    pub fn cancel_split(env: Env, split_id_str: String) {
+        if storage::is_paused(&env) {
+            panic!("Contract is paused");
         }
 
-        if hash_lock.is_empty() {
-            return Err(Error::SecretInvalid);
+        let mut escrow = storage::get_escrow(&env, &split_id_str).expect("Escrow not found");
+        escrow.creator.require_auth();
+
+        if escrow.status == EscrowStatus::Completed {
+            panic!("Cannot cancel a completed escrow");
         }
 
-        if time_lock <= env.ledger().timestamp() {
-            return Err(Error::SwapExpired);
-        }
+        escrow.status = EscrowStatus::Cancelled;
+        storage::set_escrow(&env, &split_id_str, &escrow);
 
-        // Generate swap ID
-        let swap_id = storage::get_next_swap_id(&env);
-
-        // Check if swap already exists
-        if storage::has_atomic_swap(&env, &swap_id) {
-            return Err(Error::SwapAlreadyExists);
-        }
-
-        // Create atomic swap
-        let swap = types::AtomicSwap {
-            swap_id: swap_id.clone(),
-            participant_a: participant_a.clone(),
-            participant_b: participant_b.clone(),
-            amount_a,
-            amount_b,
-            hash_lock: hash_lock.clone(),
-            secret: None,
-            time_lock,
-            created_at: env.ledger().timestamp(),
-            status: types::SwapStatus::Pending,
-            completed_at: None,
-        };
-
-        // Store swap
-        storage::set_atomic_swap(&env, &swap_id, &swap);
-
-        // Emit swap created event
-        events::emit_swap_created(&env, &swap_id, &participant_a, &participant_b, amount_a, amount_b);
-
-        Ok(swap_id)
+        events::emit_split_cancelled_legacy(&env, 0);
     }
 
-    /// Execute atomic swap with secret
-    ///
-    /// This function completes an atomic swap when the secret is revealed.
-    pub fn execute_swap(
-        env: Env,
-        swap_id: String,
-        secret: String,
-    ) -> Result<(), Error> {
-        // Get caller's address (require_auth for the caller)
-        let caller = env.current_contract_address();
-        caller.require_auth();
-
-        // Get swap
-        let mut swap = storage::get_atomic_swap(&env, &swap_id)
-            .ok_or(Error::SwapNotFound)?;
-
-        // Check if swap is still pending
-        if swap.status != types::SwapStatus::Pending {
-            return Err(Error::InvalidSwapStatus);
+    pub fn release_partial(env: Env, split_id_str: String) -> Result<i128, Error> {
+        if storage::is_paused(&env) {
+            panic!("Contract is paused");
         }
 
-        // Check if swap has expired
-        if env.ledger().timestamp() > swap.time_lock {
-            return Err(Error::SwapExpired);
+        if !storage::has_escrow(&env, &split_id_str) {
+            return Err(Error::SplitNotFound);
         }
 
-        // Verify secret matches hash lock (simplified - in production would use proper hash verification)
-        let expected_hash = Self::hash_secret(&env, &secret);
-        if expected_hash != swap.hash_lock {
-            return Err(Error::SecretInvalid);
+        let escrow = storage::get_escrow(&env, &split_id_str).expect("Escrow not found");
+
+        if escrow.status == EscrowStatus::Cancelled {
+            return Err(Error::SplitCancelled);
         }
 
-        // Update swap
-        swap.status = types::SwapStatus::Completed;
-        swap.secret = Some(secret.clone());
-        swap.completed_at = Some(env.ledger().timestamp());
+        let available = escrow.amount_collected;
+        if available <= 0 {
+            return Err(Error::NoFundsAvailable);
+        }
 
-        // Store updated swap
-        storage::set_atomic_swap(&env, &swap_id, &swap);
+        let token_address = storage::get_token(&env);
+        let token_client = TokenClient::new(&env, &token_address);
+        token_client.transfer(&env.current_contract_address(), &escrow.creator, &available);
 
-        // Note: In a real implementation, you would transfer tokens here
-        // For now, we'll just emit the event
-
-        // Emit swap executed event
-        events::emit_swap_executed(&env, &swap_id, &caller);
-
-        Ok(())
+        Ok(available)
     }
 
-    /// Refund atomic swap after timeout
-    ///
-    /// This function refunds participants when the swap times out.
-    pub fn refund_swap(
-        env: Env,
-        swap_id: String,
-    ) -> Result<(), Error> {
-        // Get caller's address (require_auth for the caller)
-        let caller = env.current_contract_address();
-        caller.require_auth();
-
-        // Get swap
-        let mut swap = storage::get_atomic_swap(&env, &swap_id)
-            .ok_or(Error::SwapNotFound)?;
-
-        // Check if swap is still pending
-        if swap.status != types::SwapStatus::Pending {
-            return Err(Error::InvalidSwapStatus);
+    pub fn is_fully_funded(env: Env, split_id_str: String) -> Result<bool, Error> {
+        if !storage::has_escrow(&env, &split_id_str) {
+            return Err(Error::SplitNotFound);
         }
 
-        // Check if swap has expired
-        if env.ledger().timestamp() <= swap.time_lock {
-            return Err(Error::SwapExpired);
-        }
-
-        // Update swap
-        swap.status = types::SwapStatus::Refunded;
-        swap.completed_at = Some(env.ledger().timestamp());
-
-        // Store updated swap
-        storage::set_atomic_swap(&env, &swap_id, &swap);
-
-        // Note: In a real implementation, you would refund tokens here
-        // For now, we'll just emit the event
-
-        // Emit swap refunded event
-        events::emit_swap_refunded(&env, &swap_id, &caller);
-
-        Ok(())
+        let escrow = storage::get_escrow(&env, &split_id_str).expect("Escrow not found");
+        Ok(escrow.is_fully_funded())
     }
 
-    /// Register oracle node for decentralized oracle network
-    ///
-    /// This function registers a new oracle node with a stake.
-    pub fn register_oracle(
-        env: Env,
-        oracle: Address,
-        stake: i128,
-    ) -> Result<(), Error> {
-        // Get caller's address (require_auth for the caller)
-        let caller = env.current_contract_address();
-        caller.require_auth();
-
-        // Validate stake
-        if stake <= 0 {
-            return Err(Error::InsufficientStake);
-        }
-
-        // Check if oracle already exists
-        if storage::has_oracle_node(&env, &oracle) {
-            return Err(Error::OracleNotRegistered);
-        }
-
-        // Create oracle node
-        let oracle_node = types::OracleNode {
-            oracle_address: oracle.clone(),
-            stake,
-            reputation: 100, // Start with neutral reputation
-            submissions_count: 0,
-            last_submission: 0,
-            active: true,
-        };
-
-        // Store oracle node
-        storage::set_oracle_node(&env, &oracle, &oracle_node);
-
-        // Emit oracle registered event
-        events::emit_oracle_registered(&env, &oracle, stake);
-
-        Ok(())
-    }
-
-    /// Submit price data from oracle
-    ///
-    /// This function allows registered oracles to submit price data.
-    pub fn submit_price(
-        env: Env,
-        oracle: Address,
-        asset_pair: String,
-        price: i128,
-    ) -> Result<(), Error> {
-        // Get caller's address (require_auth for the caller)
-        let caller = env.current_contract_address();
-        caller.require_auth();
-
-        // Validate oracle
-        let mut oracle_node = storage::get_oracle_node(&env, &oracle)
-            .ok_or(Error::OracleNotRegistered)?;
-
-        if !oracle_node.active {
-            return Err(Error::OracleNotRegistered);
-        }
-
-        // Validate price
-        if price <= 0 {
-            return Err(Error::PriceSubmissionInvalid);
+    /// Extend escrow deadline
+    pub fn extend_deadline(env: Env, split_id_str: String, new_deadline: u64) {
+        if storage::is_paused(&env) {
+            panic!("Contract is paused");
         }
 
         // Create price submission
@@ -903,63 +667,16 @@ impl SplitEscrowContract {
         let consensus = storage::get_consensus_price(&env, &asset_pair)
             .ok_or(Error::PriceSubmissionInvalid)?;
 
-        Ok(consensus.price)
-    }
-
-    /// Initiate cross-chain bridge transaction
-    ///
-    /// This function starts a bridge transaction to transfer assets across chains.
-    pub fn initiate_bridge(
-        env: Env,
-        source_chain: String,
-        amount: i128,
-        recipient: String,
-    ) -> Result<String, Error> {
-        // Get caller's address (require_auth for the caller)
-        let caller = env.current_contract_address();
-        caller.require_auth();
-
-        // Validate inputs
-        if amount <= 0 {
-            return Err(Error::InvalidAmount);
+        if new_deadline <= escrow.deadline {
+            panic!("New deadline must be later than current");
         }
 
-        if source_chain.is_empty() || recipient.is_empty() {
-            return Err(Error::InvalidBridgeStatus);
+        if escrow.status != EscrowStatus::Active {
+            panic!("Escrow is not active");
         }
 
-        // Generate bridge ID
-        let bridge_id = storage::get_next_bridge_id(&env);
-
-        // Check if bridge already exists
-        if storage::has_bridge_transaction(&env, &bridge_id) {
-            return Err(Error::BridgeAlreadyExists);
-        }
-
-        // Create bridge transaction
-        let bridge = types::BridgeTransaction {
-            bridge_id: bridge_id.clone(),
-            source_chain: source_chain.clone(),
-            destination_chain: String::from_str(&env, "destination"), // Simplified
-            amount,
-            recipient: recipient.clone(),
-            sender: caller,
-            created_at: env.ledger().timestamp(),
-            status: types::BridgeStatus::Initiated,
-            proof_hash: None,
-            completed_at: None,
-        };
-
-        // Store bridge transaction
-        storage::set_bridge_transaction(&env, &bridge_id, &bridge);
-
-        // Note: In a real implementation, you would lock tokens here
-        // For now, we'll just emit the event
-
-        // Emit bridge initiated event
-        events::emit_bridge_initiated(&env, &bridge_id, &source_chain, &String::from_str(&env, "destination"), amount, &recipient);
-
-        Ok(bridge_id)
+        escrow.deadline = new_deadline;
+        storage::set_escrow(&env, &split_id_str, &escrow);
     }
 
     /// Complete cross-chain bridge transaction
@@ -1002,63 +719,26 @@ impl SplitEscrowContract {
         // Emit bridge completed event
         events::emit_bridge_completed(&env, &bridge_id, &bridge.recipient);
 
-        Ok(())
+        let current = storage::is_paused(&env);
+        storage::set_paused(&env, !current);
     }
 
-    /// Bridge back from destination chain
-    ///
-    /// This function initiates a reverse bridge transaction.
-    pub fn bridge_back(
-        env: Env,
-        destination_chain: String,
-        amount: i128,
-    ) -> Result<String, Error> {
-        // Get caller's address (require_auth for the caller)
-        let caller = env.current_contract_address();
-        caller.require_auth();
-
-        // Validate inputs
-        if amount <= 0 {
-            return Err(Error::InvalidAmount);
+    /// Internal helper function to release funds
+    fn release_funds_internal(env: &Env, split_id_str: String, mut escrow: SplitEscrow) -> Result<i128, Error> {
+        if escrow.status == EscrowStatus::Cancelled {
+            return Err(Error::SplitCancelled);
         }
 
-        if destination_chain.is_empty() {
-            return Err(Error::InvalidBridgeStatus);
-        }
+        let total_amount = escrow.total_amount;
+        
+        let token_address = storage::get_token(env);
+        let token_client = TokenClient::new(env, &token_address);
+        token_client.transfer(&env.current_contract_address(), &escrow.creator, &total_amount);
 
-        // Generate bridge ID
-        let bridge_id = storage::get_next_bridge_id(&env);
+        escrow.status = EscrowStatus::Released;
+        storage::set_escrow(env, &split_id_str, &escrow);
 
-        // Check if bridge already exists
-        if storage::has_bridge_transaction(&env, &bridge_id) {
-            return Err(Error::BridgeAlreadyExists);
-        }
-
-        // Create reverse bridge transaction
-        let bridge = types::BridgeTransaction {
-            bridge_id: bridge_id.clone(),
-            source_chain: String::from_str(&env, "destination"), // Reverse
-            destination_chain: destination_chain.clone(),
-            amount,
-            recipient: String::from_str(&env, "reverse_recipient"), // Simplified
-            sender: caller,
-            created_at: env.ledger().timestamp(),
-            status: types::BridgeStatus::Initiated,
-            proof_hash: None,
-            completed_at: None,
-        };
-
-        // Store bridge transaction
-        storage::set_bridge_transaction(&env, &bridge_id, &bridge);
-
-        // Note: In a real implementation, you would burn tokens on destination chain here
-        // For now, we'll just emit the event
-
-        // Emit bridge initiated event for reverse bridge
-        events::emit_bridge_initiated(&env, &bridge_id, &String::from_str(&env, "destination"), &destination_chain, amount, &String::from_str(&env, "reverse_recipient"));
-
-        Ok(bridge_id)
-    }
+        events::emit_funds_released(env, 0, escrow.creator.clone(), total_amount);
 
     /// Helper function to hash secret (simplified implementation)
     fn hash_secret(env: &Env, _secret: &String) -> String {
@@ -1066,14 +746,14 @@ impl SplitEscrowContract {
         String::from_str(env, "hash_stub")
     }
 
-    /// Internal helper function to check if split is fully funded
-    fn is_fully_funded_internal(split: &types::Split) -> bool {
-        let mut total_paid: i128 = 0;
-        for i in 0..split.participants.len() {
-            total_paid += split.participants.get(i).unwrap().amount_paid;
+    pub fn get_split(env: Env, split_id_str: String) -> SplitEscrow {
+        let mut escrow = storage::get_escrow(&env, &split_id_str).expect("Escrow not found");
+        if escrow.status == EscrowStatus::Active && env.ledger().timestamp() > escrow.deadline {
+            escrow.status = EscrowStatus::Expired;
         }
-        total_paid >= split.total_amount
+        escrow
     }
+}
 
     /// Internal helper function to release funds
     ///

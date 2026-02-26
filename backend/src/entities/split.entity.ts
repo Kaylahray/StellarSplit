@@ -4,6 +4,7 @@ import {
   Column,
   CreateDateColumn,
   UpdateDateColumn,
+  DeleteDateColumn,
   OneToMany,
 } from "typeorm";
 import { Item } from "./item.entity";
@@ -57,6 +58,10 @@ export class Split {
   @UpdateDateColumn()
   updatedAt!: Date;
 
+  /** Soft delete: set when removed; records with this set are excluded from default queries. */
+  @DeleteDateColumn({ name: "deleted_at" })
+  deletedAt!: Date | null;
+
   @OneToMany(() => Item, (item) => item.split)
   items?: Item[];
 
@@ -65,6 +70,9 @@ export class Split {
 
   @Column({ type: "uuid", nullable: true })
   categoryId?: string;
+
+  @Column({ type: "timestamp", nullable: true })
+  expiryDate?: Date;
 
   @ManyToOne(() => ExpenseCategory, (category) => category.splits)
   @JoinColumn({ name: "categoryId" })

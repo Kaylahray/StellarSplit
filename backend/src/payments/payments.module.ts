@@ -13,6 +13,7 @@ import { IdempotencyRecord } from "../entities/idempotency-record.entity";
 import { EmailModule } from "../email/email.module";
 import { MultiCurrencyModule } from "../multi-currency/multi-currency.module";
 import { AnalyticsModule } from "../analytics/analytics.module";
+import { GatewayModule } from "../gateway/gateway.module";
 import { IdempotencyService } from "../common/idempotency/idempotency.service";
 import { IdempotencyInterceptor } from "../common/idempotency/idempotency.interceptor";
 
@@ -23,6 +24,7 @@ import { IdempotencyInterceptor } from "../common/idempotency/idempotency.interc
     EmailModule,
     MultiCurrencyModule,
     AnalyticsModule,
+    GatewayModule,
   ],
   controllers: [PaymentsController],
   providers: [

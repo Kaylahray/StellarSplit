@@ -91,6 +91,8 @@ pub struct Split {
 /// Rewards status for user rewards
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
 #[contracttype]
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
+#[repr(u32)]
 pub enum RewardsStatus {
     Active = 0,
     Claimed = 1,
@@ -220,7 +222,7 @@ pub struct PriceSubmission {
 
 /// Consensus price data
 #[contracttype]
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct ConsensusPrice {
     pub asset_pair: String,
     pub price: i128,
@@ -424,6 +426,8 @@ pub enum EscrowStatus {
     Cancelled,
     /// Deadline passed without completion
     Expired,
+    /// Funds have been released to the creator
+    Released,
 }
 
 /// Enhanced participant structure with payment timestamp
@@ -470,6 +474,9 @@ pub struct SplitEscrow {
 
     /// List of participants and their payment details
     pub participants: Vec<EscrowParticipant>,
+
+    /// The requester of the split (usually same as creator or oracle)
+    pub requester: Address,
 
     /// Current status of the escrow
     pub status: EscrowStatus,
@@ -615,14 +622,23 @@ pub fn create_escrow(
 ) -> SplitEscrow {
     SplitEscrow {
         split_id,
-        creator,
+        creator: creator.clone(),
         description,
         total_amount,
         amount_collected: 0,
         participants,
+        requester: creator.clone(), // Use creator as default requester
         status: EscrowStatus::Active,
         deadline,
         created_at: env.ledger().timestamp(),
     }
 }
 
+
+
+pub fn emit_partial_payment_received(env: &Env, participant: Address, amount: i128, remaining: i128) {
+    env.events().publish(
+        (Symbol::new("PartialPaymentReceived"), participant),
+        (amount, remaining),
+    );
+}

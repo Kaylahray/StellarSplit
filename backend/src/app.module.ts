@@ -34,8 +34,14 @@ import { GovernanceModule } from './governance/governance.module';
 import { ComplianceModule } from './compliance/compliance.module';
 import { SettlementModule } from "./settlement/settlement.module";
 import { TemplatesModule } from "./templates/templates.module";
+import { PushNotificationsModule } from './push-notifications/push-notifications.module';
+import { ArchivingModule } from './modules/archiving/archiving.module';
+import { GatewayModule } from "./gateway/gateway.module";
 import { SchedulerModule } from "./modules/scheduler/scheduler.module";
 import { UploadModule } from "./uploads/upload.module";
+import { ProfileModule } from "./profile/profile.module";
+import { InvitationsModule } from "./invitations/invitations.module";
+import { CommonModule } from "./common/common.module";
 // Load environment variables
 dotenv.config({
   path: path.resolve(__dirname, '../.env'),
@@ -112,8 +118,14 @@ dotenv.config({
     ComplianceModule,
     SettlementModule,
     TemplatesModule,
+    PushNotificationsModule,
+    ArchivingModule,
+    GatewayModule,
     SchedulerModule,
     UploadModule,
+    ProfileModule,
+    InvitationsModule,
+    CommonModule,
   ],
 })
 export class AppModule { }

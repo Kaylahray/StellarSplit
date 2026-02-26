@@ -94,6 +94,9 @@ pub enum StorageKey {
 
     /// Maps insurance_id to claim_id (one-to-many)
     InsuranceClaims(String),
+
+    /// Contract pause state
+    Paused,
 }
 
 /// Time-to-live for persistent storage (about 1 year)
@@ -106,27 +109,32 @@ const LEDGER_TTL_THRESHOLD: u32 = 86_400;
 // Admin Storage Functions
 // ============================================
 
-/// Check if the admin has been set
 pub fn has_admin(env: &Env) -> bool {
-    env.storage().persistent().has(&DataKey::Admin)
+    env.storage().instance().has(&DataKey::Admin)
 }
 
-/// Get the contract admin address
 pub fn get_admin(env: &Env) -> Address {
-    env.storage()
-        .persistent()
-        .get(&DataKey::Admin)
-        .expect("Admin not set")
+    env.storage().instance().get(&DataKey::Admin).expect("Admin not set")
 }
 
-/// Set the contract admin address
 pub fn set_admin(env: &Env, admin: &Address) {
-    env.storage().persistent().set(&DataKey::Admin, admin);
-    env.storage().persistent().extend_ttl(
-        &DataKey::Admin,
-        LEDGER_TTL_THRESHOLD,
-        LEDGER_TTL_PERSISTENT,
-    );
+    env.storage().instance().set(&DataKey::Admin, admin);
+}
+
+pub fn is_initialized(env: &Env) -> bool {
+    env.storage().instance().has(&DataKey::Initialized)
+}
+
+pub fn set_initialized(env: &Env) {
+    env.storage().instance().set(&DataKey::Initialized, &true);
+}
+
+pub fn is_paused(env: &Env) -> bool {
+    env.storage().instance().get(&StorageKey::Paused).unwrap_or(false)
+}
+
+pub fn set_paused(env: &Env, paused: bool) {
+    env.storage().instance().set(&StorageKey::Paused, &paused);
 }
 
 // ============================================
@@ -271,13 +279,12 @@ pub fn increment_escrow_count(env: &Env) -> u64 {
     next
 }
 
-/// Get an escrow by split_id
-pub fn get_escrow(env: &Env, split_id: &String) -> SplitEscrow {
+// Redundant get_escrow removed
+
+/// Get an escrow record
+pub fn get_escrow(env: &Env, split_id: &String) -> Option<SplitEscrow> {
     let key = StorageKey::Escrow(split_id.clone());
-    env.storage()
-        .persistent()
-        .get(&key)
-        .expect("Escrow not found")
+    env.storage().persistent().get(&key)
 }
 
 /// Check if an escrow exists
@@ -554,6 +561,10 @@ pub enum VerificationStorageKey {
     VerificationRequest(String),
     OracleConfig,
     VerificationCounter,
+    OracleNode(Address),
+    PriceSubmission(String, Address), // asset_pair, oracle_address
+    ConsensusPrice(String),
+    OracleCounter,
 }
 
 /// Get verification request
@@ -597,7 +608,7 @@ pub fn get_next_verification_id(env: &Env) -> String {
 }
 
 /// Helper to format number as string (reused from rewards)
-fn format_number_as_string(env: &Env, num: u64) -> String {
+pub fn format_number_as_string(env: &Env, num: u64) -> String {
     match num {
         0 => String::from_str(env, "0"),
         1 => String::from_str(env, "1"),
@@ -622,15 +633,6 @@ pub enum SwapStorageKey {
     SwapCounter,
 }
 
-/// Storage keys for oracle network
-#[derive(Clone)]
-#[contracttype]
-pub enum OracleStorageKey {
-    OracleNode(Address),
-    PriceSubmission(String, Address), // asset_pair, oracle_address
-    ConsensusPrice(String),
-    OracleCounter,
-}
 
 /// Storage keys for bridge transactions
 #[derive(Clone)]
