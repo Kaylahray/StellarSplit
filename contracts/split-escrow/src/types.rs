@@ -290,6 +290,9 @@ pub enum Error {
     BridgeAlreadyExists = 32,
     InvalidBridgeStatus = 33,
     ProofInvalid = 34,
+    EscrowNotRefundable = 35,
+    ParticipantAlreadyRefunded = 36,
+    SplitNotCompleted = 37,
 }
 
 // No manual From implementation needed for #[contracterror]

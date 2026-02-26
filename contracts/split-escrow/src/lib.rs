@@ -281,6 +281,67 @@ impl SplitEscrowContract {
         events::emit_split_cancelled(&env, 0);
     }
 
+    /// Claim a refund for a cancelled or expired split
+    pub fn claim_refund(env: Env, split_id_str: String, participant: Address) -> Result<i128, Error> {
+        if storage::is_paused(&env) {
+            panic!("Contract is paused");
+        }
+
+        let mut escrow = storage::get_escrow(&env, &split_id_str).expect("Escrow not found");
+
+        // Check if escrow is in a refundable state
+        if escrow.status == EscrowStatus::Active && env.ledger().timestamp() > escrow.deadline {
+            escrow.status = EscrowStatus::Expired;
+            storage::set_escrow(&env, &split_id_str, &escrow);
+        }
+
+        if escrow.status != EscrowStatus::Cancelled && escrow.status != EscrowStatus::Expired {
+            return Err(Error::EscrowNotRefundable);
+        }
+
+        let mut found = false;
+        let mut refund_amount: i128 = 0;
+        let mut updated_participants = Vec::new(&env);
+
+        for i in 0..escrow.participants.len() {
+            let mut p = escrow.participants.get(i).unwrap();
+            if p.address == participant {
+                found = true;
+                participant.require_auth();
+                
+                if p.amount_paid <= 0 {
+                    return Err(Error::NoFundsAvailable);
+                }
+
+                refund_amount = p.amount_paid;
+                p.amount_paid = 0;
+                p.paid_at = None;
+            }
+            updated_participants.push_back(p);
+        }
+
+        if !found {
+            return Err(Error::ParticipantNotFound);
+        }
+
+        if refund_amount <= 0 {
+             return Err(Error::NoFundsAvailable);
+        }
+
+        let token_address = storage::get_token(&env);
+        let token_client = TokenClient::new(&env, &token_address);
+        token_client.transfer(&env.current_contract_address(), &participant, &refund_amount);
+
+        escrow.participants = updated_participants;
+        escrow.amount_collected -= refund_amount;
+        storage::set_escrow(&env, &split_id_str, &escrow);
+
+        // Emit refund event (using a simple logic for now)
+        events::emit_funds_released(&env, 0, &participant, refund_amount, env.ledger().timestamp());
+
+        Ok(refund_amount)
+    }
+
     /// Extend escrow deadline
     pub fn extend_deadline(env: Env, split_id_str: String, new_deadline: u64) {
         if storage::is_paused(&env) {
@@ -1048,10 +1109,6 @@ impl SplitEscrowContract {
         String::from_str(env, "hash_mock")
     }
 
-    /// Internal helper function to check if escrow is fully funded
-    fn is_fully_funded_internal(escrow: &types::SplitEscrow) -> bool {
-        escrow.is_fully_funded()
-    }
 
     /// Internal helper function to release funds
     fn release_funds_internal(env: &Env, split_id_str: String, mut escrow: types::SplitEscrow) -> Result<i128, Error> {
