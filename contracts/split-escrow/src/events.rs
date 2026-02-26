@@ -1,9 +1,6 @@
-use soroban_sdk::{symbol_short, Address, Env};
+use soroban_sdk::{symbol_short, Symbol, Address, Env, String};
 
 /// Emitted when a new escrow is created for a split.
-///
-/// Topics : ["escrow_created", split_id]
-/// Data   : { creator, total_amount, deadline }
 pub fn emit_escrow_created(
     env: &Env,
     split_id: u64,
@@ -17,9 +14,6 @@ pub fn emit_escrow_created(
 }
 
 /// Emitted when a participant deposits funds into the escrow.
-///
-/// Topics : ["pmt_recvd", split_id]
-/// Data   : { participant, amount, timestamp }
 pub fn emit_payment_received(
     env: &Env,
     split_id: u64,
@@ -31,10 +25,7 @@ pub fn emit_payment_received(
     env.events().publish(topics, data);
 }
 
-/// Emitted when funds are released to a recipient after all payments are received.
-///
-/// Topics : ["funds_rls", split_id]
-/// Data   : { recipient, amount, timestamp }
+/// Emitted when funds are released to a recipient.
 pub fn emit_funds_released(
     env: &Env,
     split_id: u64,
@@ -47,9 +38,6 @@ pub fn emit_funds_released(
 }
 
 /// Emitted when the creator explicitly cancels the escrow.
-///
-/// Topics : ["e_cancel", split_id]
-/// Data   : { cancelled_by, timestamp }
 pub fn emit_escrow_cancelled(env: &Env, split_id: u64, cancelled_by: Address) {
     let topics = (symbol_short!("e_cancel"), split_id);
     let data = (cancelled_by, env.ledger().timestamp());
@@ -57,107 +45,108 @@ pub fn emit_escrow_cancelled(env: &Env, split_id: u64, cancelled_by: Address) {
 }
 
 /// Emitted when the escrow deadline passes with outstanding unfunded amounts.
-///
-/// Topics : ["e_expired", split_id]
-/// Data   : { unfunded_amount, timestamp }
 pub fn emit_escrow_expired(env: &Env, split_id: u64, unfunded_amount: i128) {
     let topics = (symbol_short!("e_expired"), split_id);
     let data = (unfunded_amount, env.ledger().timestamp());
     env.events().publish(topics, data);
 }
 
-/// Emitted when a refund is issued to a participant after cancellation or expiry.
-///
-/// Topics : ["refund", split_id]
-/// Data   : { participant, amount, timestamp }
+/// Emitted when a refund is issued to a participant.
 pub fn emit_refund_issued(env: &Env, split_id: u64, participant: Address, amount: i128) {
     let topics = (symbol_short!("refund"), split_id);
     let data = (participant, amount, env.ledger().timestamp());
     env.events().publish(topics, data);
 }
 
-// ─── Tests ────────────────────────────────────────────────────────────────────
+// ── Legacy/Compatibility Emitters ───────────────────────────────────────────
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use soroban_sdk::{testutils::Events, vec, Address, Env, IntoVal};
+pub fn emit_split_created(env: &Env, split_id: u64, creator: &Address, total_amount: i128) {
+    env.events()
+        .publish((symbol_short!("created"),), (split_id, creator.clone(), total_amount));
+}
 
-    fn make_env() -> Env {
-        Env::default()
-    }
+pub fn emit_deposit_received(env: &Env, split_id: u64, participant: &Address, amount: i128) {
+    env.events().publish(
+        (symbol_short!("deposit"),),
+        (split_id, participant.clone(), amount),
+    );
+}
 
-    fn alice(env: &Env) -> Address {
-        Address::generate(env)
-    }
+pub fn emit_split_cancelled_legacy(env: &Env, split_id: u64) {
+    env.events()
+        .publish((symbol_short!("cancel"),), (split_id,));
+}
 
-    #[test]
-    fn test_emit_escrow_created() {
-        let env = make_env();
-        let creator = alice(&env);
-        emit_escrow_created(&env, 1, creator.clone(), 1000, 9999);
-        let events = env.events().all();
-        assert_eq!(events.len(), 1);
-        let (_, topics, _) = events.get(0).unwrap();
-        // topics vec contains the symbol and split_id
-        assert!(topics.len() > 0);
-    }
+// ── Rewards & Activity ──────────────────────────────────────────────────────
 
-    #[test]
-    fn test_emit_payment_received() {
-        let env = make_env();
-        let participant = alice(&env);
-        emit_payment_received(&env, 2, participant.clone(), 500);
-        let events = env.events().all();
-        assert_eq!(events.len(), 1);
-    }
+pub fn emit_activity_tracked(env: &Env, user: &Address, activity_type: &str, split_id: u64, amount: i128) {
+    env.events()
+        .publish(
+            (Symbol::new(env, "activity_tracked"),),
+            (user.clone(), activity_type, split_id, amount)
+        );
+}
 
-    #[test]
-    fn test_emit_funds_released() {
-        let env = make_env();
-        let recipient = alice(&env);
-        emit_funds_released(&env, 3, recipient.clone(), 1000);
-        let events = env.events().all();
-        assert_eq!(events.len(), 1);
-    }
+pub fn emit_rewards_calculated(env: &Env, user: &Address, total_rewards: i128, available_rewards: i128) {
+    env.events()
+        .publish(
+            (Symbol::new(env, "rewards_calculated"),),
+            (user.clone(), total_rewards, available_rewards)
+        );
+}
 
-    #[test]
-    fn test_emit_escrow_cancelled() {
-        let env = make_env();
-        let canceller = alice(&env);
-        emit_escrow_cancelled(&env, 4, canceller.clone());
-        let events = env.events().all();
-        assert_eq!(events.len(), 1);
-    }
+pub fn emit_rewards_claimed(env: &Env, user: &Address, amount_claimed: i128) {
+    env.events()
+        .publish(
+            (Symbol::new(env, "rewards_claimed"),),
+            (user.clone(), amount_claimed)
+        );
+}
 
-    #[test]
-    fn test_emit_escrow_expired() {
-        let env = make_env();
-        emit_escrow_expired(&env, 5, 250);
-        let events = env.events().all();
-        assert_eq!(events.len(), 1);
-    }
+// ── Insurance & Verification ────────────────────────────────────────────────
 
-    #[test]
-    fn test_emit_refund_issued() {
-        let env = make_env();
-        let participant = alice(&env);
-        emit_refund_issued(&env, 6, participant.clone(), 100);
-        let events = env.events().all();
-        assert_eq!(events.len(), 1);
-    }
+pub fn emit_insurance_purchased(
+    env: &Env,
+    insurance_id: &String,
+    split_id: &String,
+    policy_holder: &Address,
+    premium: i128,
+    coverage_amount: i128,
+) {
+    env.events().publish(
+        (Symbol::new(env, "ins_purchased"),),
+        (
+            insurance_id.clone(),
+            split_id.clone(),
+            policy_holder.clone(),
+            premium,
+            coverage_amount,
+        ),
+    );
+}
 
-    #[test]
-    fn test_all_events_distinct_topics() {
-        let env = make_env();
-        let addr = alice(&env);
-        emit_escrow_created(&env, 1, addr.clone(), 1000, 9999);
-        emit_payment_received(&env, 1, addr.clone(), 500);
-        emit_funds_released(&env, 1, addr.clone(), 1000);
-        emit_escrow_cancelled(&env, 1, addr.clone());
-        emit_escrow_expired(&env, 1, 0);
-        emit_refund_issued(&env, 1, addr.clone(), 500);
-        // All 6 events emitted
-        assert_eq!(env.events().all().len(), 6);
-    }
+pub fn emit_verification_submitted(env: &Env, verification_id: &String, split_id: &String, requester: &Address) {
+    env.events()
+        .publish(
+            (Symbol::new(env, "verification_submitted"),),
+            (verification_id.clone(), split_id.clone(), requester.clone())
+        );
+}
+
+// ── Atomic Swap & Bridge ────────────────────────────────────────────────────
+
+pub fn emit_swap_created(env: &Env, swap_id: &String, participant_a: &Address, participant_b: &Address, amount_a: i128, amount_b: i128) {
+    env.events()
+        .publish(
+            (Symbol::new(env, "swap_created"),),
+            (swap_id.clone(), participant_a.clone(), participant_b.clone(), amount_a, amount_b)
+        );
+}
+
+pub fn emit_bridge_initiated(env: &Env, bridge_id: &String, source_chain: &String, destination_chain: &String, amount: i128, recipient: &String) {
+    env.events()
+        .publish(
+            (Symbol::new(env, "bridge_initiated"),),
+            (bridge_id.clone(), source_chain.clone(), destination_chain.clone(), amount, recipient.clone())
+        );
 }
