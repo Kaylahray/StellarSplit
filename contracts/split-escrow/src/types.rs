@@ -7,6 +7,7 @@
 //! types as specified in issue #59.
 
 use soroban_sdk::{contracterror, contracttype, Address, Env, String, Vec};
+use soroban_sdk::{Env, Symbol, Vec, Address};
 // ============================================
 // Original Types (preserved for compatibility)
 // ============================================
@@ -631,3 +632,11 @@ pub fn create_escrow(
     }
 }
 
+
+
+pub fn emit_partial_payment_received(env: &Env, participant: Address, amount: i128, remaining: i128) {
+    env.events().publish(
+        (Symbol::new("PartialPaymentReceived"), participant),
+        (amount, remaining),
+    );
+}
