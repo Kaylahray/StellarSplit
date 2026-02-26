@@ -12,12 +12,9 @@
 #![no_std]
 
 use soroban_sdk::{
-    contracttype, Address, Env, String, Vec, Symbol, token,
-    contracterror, contractimpl, panic_with_error, Map, Binary,
+    contract, contractimpl, Address, Env, String, Vec, token, Map,
     token::Client as TokenClient,
-    testutils::Ledger as _,
 };
-use std::string::ToString;
 
 mod events;
 mod storage;
@@ -56,17 +53,41 @@ impl SplitEscrowContract {
         // Store the admin address
         storage::set_admin(&env, &admin);
 
-        // Store the token address
+        // Store the legacy default token address and also auto-approve it
         storage::set_token(&env, &token);
+        storage::set_asset_approved(&env, &token);
 
         // Emit initialization event
         events::emit_initialized(&env, &admin);
     }
 
-    /// Create a new split with the specified participants and amounts
+    /// Add a token to the approved-asset allowlist. Admin-only.
     ///
-    /// I'm designing this to be called by the split creator who will also
-    /// be responsible for distributing funds once everyone has paid.
+    /// Issue #201: admins must pre-approve every token that participants
+    /// are allowed to deposit with. Unapproved assets are rejected at
+    /// create_split time.
+    pub fn add_approved_asset(env: Env, asset: Address) {
+        let admin = storage::get_admin(&env);
+        admin.require_auth();
+        storage::set_asset_approved(&env, &asset);
+    }
+
+    /// Remove a token from the approved-asset allowlist. Admin-only.
+    pub fn remove_approved_asset(env: Env, asset: Address) {
+        let admin = storage::get_admin(&env);
+        admin.require_auth();
+        storage::set_asset_revoked(&env, &asset);
+    }
+
+    /// Check whether an asset is approved
+    pub fn is_asset_approved(env: Env, asset: Address) -> bool {
+        storage::is_asset_approved(&env, &asset)
+    }
+
+    /// Create a new split with the specified participants, amounts, and per-participant assets
+    ///
+    /// Extended in issue #201: each participant now specifies the token they will pay with.
+    /// All assets must be on the approved-asset allowlist or the call is rejected.
     pub fn create_split(
         env: Env,
         creator: Address,
@@ -74,6 +95,7 @@ impl SplitEscrowContract {
         total_amount: i128,
         participant_addresses: Vec<Address>,
         participant_shares: Vec<i128>,
+        participant_assets: Vec<Address>,
     ) -> u64 {
         // Verify the creator is authorizing this call
         creator.require_auth();
@@ -82,7 +104,9 @@ impl SplitEscrowContract {
         if participant_addresses.len() != participant_shares.len() {
             panic!("Participant addresses and shares must have the same length");
         }
-
+        if participant_addresses.len() != participant_assets.len() {
+            panic!("Participant assets length must match participant count");
+        }
         if participant_addresses.is_empty() {
             panic!("At least one participant is required");
         }
@@ -96,14 +120,23 @@ impl SplitEscrowContract {
             panic!("Participant shares must sum to total amount");
         }
 
+        // Validate all assets are on the approved list
+        for i in 0..participant_assets.len() {
+            let asset = participant_assets.get(i).unwrap();
+            if !storage::is_asset_approved(&env, &asset) {
+                panic!("Asset not approved");
+            }
+        }
+
         // Get the next split ID
         let split_id = storage::get_next_split_id(&env);
 
-        // Create participant entries
+        // Create participant entries (now includes per-participant asset)
         let mut participants = Vec::new(&env);
         for i in 0..participant_addresses.len() {
             let participant = Participant {
                 address: participant_addresses.get(i).unwrap(),
+                asset: participant_assets.get(i).unwrap(),
                 share_amount: participant_shares.get(i).unwrap(),
                 amount_paid: 0,
                 has_paid: false,
@@ -133,9 +166,10 @@ impl SplitEscrowContract {
         split_id
     }
 
-    /// Deposit funds into a split
+    /// Deposit funds into a split using the participant's designated asset token
     ///
-    /// I'm allowing partial deposits so participants can pay incrementally.
+    /// Issue #201: each participant now pays with their own asset.
+    /// The correct token client is selected from the participant record.
     pub fn deposit(env: Env, split_id: u64, participant: Address, amount: i128) {
         // Verify the participant is authorizing this call
         participant.require_auth();
@@ -152,8 +186,9 @@ impl SplitEscrowContract {
             panic!("Split is not accepting deposits");
         }
 
-        // Find the participant in the split
+        // Find the participant in the split and capture their asset
         let mut found = false;
+        let mut participant_asset: Option<Address> = None;
         let mut updated_participants = Vec::new(&env);
 
         for i in 0..split.participants.len() {
@@ -164,6 +199,8 @@ impl SplitEscrowContract {
                 if amount > remaining {
                     panic!("Deposit exceeds remaining amount owed");
                 }
+                // Capture this participant's asset for transfer
+                participant_asset = Some(p.asset.clone());
 
                 p.amount_paid += amount;
                 p.has_paid = p.amount_paid >= p.share_amount;
@@ -175,9 +212,9 @@ impl SplitEscrowContract {
             panic!("Participant not found in split");
         }
 
-        // Transfer tokens from participant to escrow contract
-        let token_address = storage::get_token(&env);
-        let token_client = token::Client::new(&env, &token_address);
+        // Transfer tokens from participant to escrow using the participant's own asset
+        let asset_address = participant_asset.expect("Asset not set");
+        let token_client = token::Client::new(&env, &asset_address);
         let contract_address = env.current_contract_address();
         token_client.transfer(&participant, &contract_address, &amount);
 
@@ -185,7 +222,7 @@ impl SplitEscrowContract {
         split.participants = updated_participants;
         split.amount_collected += amount;
 
-        // Check if split is now fully funded
+        // Transition from Pending → Active on first deposit
         if split.status == SplitStatus::Pending {
             split.status = SplitStatus::Active;
         }
@@ -193,7 +230,9 @@ impl SplitEscrowContract {
         // Save the updated split
         storage::set_split(&env, split_id, &split);
 
-        // Emit deposit event
+        // Emit multi-asset PaymentReceived event (issue #201)
+        events::emit_payment_received(&env, split_id, &participant, &asset_address, amount);
+        // Also emit legacy deposit event for backwards compatibility
         events::emit_deposit_received(&env, split_id, &participant, amount);
 
         // Auto-release funds if fully funded
@@ -421,12 +460,13 @@ impl SplitEscrowContract {
         let total_rewards = creation_rewards + participation_rewards + volume_rewards;
         
         // Update rewards earned
+        let rewards_claimed = rewards.rewards_claimed;
         let mut updated_rewards = rewards;
         updated_rewards.rewards_earned = total_rewards;
         storage::set_user_rewards(&env, &user, &updated_rewards);
 
         // Calculate available rewards (earned - claimed)
-        let available_rewards = total_rewards - rewards.rewards_claimed;
+        let available_rewards = total_rewards - rewards_claimed;
 
         // Emit rewards calculated event
         events::emit_rewards_calculated(&env, &user, total_rewards, available_rewards);
@@ -467,6 +507,7 @@ impl SplitEscrowContract {
         }
 
         // Update claimed rewards
+        let old_claimed = rewards.rewards_claimed;
         rewards.rewards_claimed += available_rewards;
         rewards.last_activity = env.ledger().timestamp();
         
@@ -477,7 +518,7 @@ impl SplitEscrowContract {
         // For now, we'll just emit the event
 
         // Emit rewards claimed event
-        events::emit_rewards_claimed(&env, &user, available_rewards);
+        events::emit_rewards_claimed(&env, &user, rewards.rewards_claimed - old_claimed);
 
         Ok(available_rewards)
     }
@@ -513,7 +554,7 @@ impl SplitEscrowContract {
         let request = types::VerificationRequest {
             verification_id: verification_id.clone(),
             split_id: split_id.clone(),
-            requester: caller,
+            requester: caller.clone(),
             receipt_hash: receipt_hash.clone(),
             evidence_url: None,
             submitted_at: env.ledger().timestamp(),
@@ -567,7 +608,7 @@ impl SplitEscrowContract {
         } else {
             types::VerificationStatus::Rejected
         };
-        request.verified_by = Some(caller);
+        request.verified_by = Some(caller.clone());
         request.verified_at = Some(env.ledger().timestamp());
 
         if !verified {
@@ -839,7 +880,7 @@ impl SplitEscrowContract {
         let consensus_price = types::ConsensusPrice {
             asset_pair: asset_pair.clone(),
             price: 1000, // Mock price
-            confidence: 0.95,
+            confidence: 9500, // 95.00% scaled x100
             participating_oracles: 3,
             timestamp: env.ledger().timestamp(),
         };
@@ -927,7 +968,7 @@ impl SplitEscrowContract {
     pub fn complete_bridge(
         env: Env,
         bridge_id: String,
-        proof: Binary,
+        _proof: soroban_sdk::Bytes,
     ) -> Result<(), Error> {
         // Get caller's address (require_auth for the caller)
         let caller = env.current_contract_address();
@@ -943,7 +984,7 @@ impl SplitEscrowContract {
         }
 
         // Validate proof (simplified - in production would use proper verification)
-        if proof.len() == 0 {
+        if _proof.len() == 0 {
             return Err(Error::ProofInvalid);
         }
 
@@ -1020,13 +1061,9 @@ impl SplitEscrowContract {
     }
 
     /// Helper function to hash secret (simplified implementation)
-    fn hash_secret(env: &Env, secret: &String) -> String {
-        // In a real implementation, this would use a proper hash function like SHA-256
-        // For now, we'll use a simple approach for demonstration
-        let mut hash = String::from_str(env, "hash_");
-        let mut result = String::from_str(env, "");
-        result = hash + secret;
-        result
+    fn hash_secret(env: &Env, _secret: &String) -> String {
+        // Simplified hash for demo — production would use sha256 via env.crypto()
+        String::from_str(env, "hash_stub")
     }
 
     /// Internal helper function to check if split is fully funded
@@ -1039,6 +1076,9 @@ impl SplitEscrowContract {
     }
 
     /// Internal helper function to release funds
+    ///
+    /// Issue #201: groups collected payments by asset and transfers
+    /// the aggregated amount of each token to the split creator.
     fn release_funds_internal(env: &Env, split_id: u64, mut split: types::Split) -> Result<i128, Error> {
         if split.status == types::SplitStatus::Cancelled {
             return Err(Error::SplitCancelled);
@@ -1052,19 +1092,39 @@ impl SplitEscrowContract {
             return Err(Error::SplitNotFunded);
         }
 
+        let total_amount = split.total_amount;
         split.status = types::SplitStatus::Released;
+        split.amount_released = total_amount;
         storage::set_split(env, split_id, &split);
 
-        let total_amount = split.total_amount;
-        for participant in split.participants.iter() {
-            let token_address = storage::get_token(env);
-            let token_client = TokenClient::new(env, &token_address);
-            token_client.transfer(
-                &env.current_contract_address(),
-                &participant.address,
-                &participant.share_amount,
-            );
+        let contract_address = env.current_contract_address();
+
+        // Aggregate the amount paid per asset token across all participants
+        // We use a Map keyed by Address (token contract) → total paid with that token.
+        let mut asset_totals: Map<Address, i128> = Map::new(env);
+
+        for i in 0..split.participants.len() {
+            let p = split.participants.get(i).unwrap();
+            let current = asset_totals.get(p.asset.clone()).unwrap_or(0);
+            asset_totals.set(p.asset.clone(), current + p.amount_paid);
         }
+
+        // Transfer the aggregated amount of each asset to the creator
+        for (asset_addr, amount) in asset_totals.iter() {
+            if amount > 0 {
+                let token_client = TokenClient::new(env, &asset_addr);
+                token_client.transfer(&contract_address, &split.creator, &amount);
+            }
+        }
+
+        events::emit_escrow_completed(env, split_id, total_amount);
+        events::emit_funds_released(
+            env,
+            split_id,
+            &split.creator,
+            total_amount,
+            env.ledger().timestamp(),
+        );
 
         Ok(total_amount)
     }

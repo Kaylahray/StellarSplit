@@ -4,7 +4,6 @@
 //! These events are crucial for the backend to sync with on-chain state.
 
 use soroban_sdk::{symbol_short, Address, Env, String};
-use soroban_sdk::contractevent;
 
 /// Emit when the contract is initialized
 ///
@@ -26,7 +25,7 @@ pub fn emit_split_created(env: &Env, split_id: u64, creator: &Address, total_amo
     );
 }
 
-/// Emit when a deposit is received
+/// Emit when a deposit is received (legacy — single-asset)
 ///
 /// I'm emitting this for each deposit so the backend can
 /// track partial payments and update participant status.
@@ -34,6 +33,17 @@ pub fn emit_deposit_received(env: &Env, split_id: u64, participant: &Address, am
     env.events().publish(
         (symbol_short!("deposit"),),
         (split_id, participant.clone(), amount),
+    );
+}
+
+/// Emit when a payment is received in a multi-asset escrow (issue #201)
+///
+/// Includes the asset address so off-chain indexers can reconcile
+/// which token was used for each participant's payment.
+pub fn emit_payment_received(env: &Env, split_id: u64, participant: &Address, asset: &Address, amount: i128) {
+    env.events().publish(
+        (symbol_short!("pmtrecv"),),
+        (split_id, participant.clone(), asset.clone(), amount),
     );
 }
 
@@ -94,7 +104,7 @@ pub fn emit_insurance_purchased(
     coverage_amount: i128,
 ) {
     env.events().publish(
-        (symbol_short!("ins_purchased"),),
+        (symbol_short!("ins_buy"),),
         (
             insurance_id.clone(),
             split_id.clone(),
@@ -114,7 +124,7 @@ pub fn emit_claim_filed(
     claim_amount: i128,
 ) {
     env.events().publish(
-        (symbol_short!("claim_filed"),),
+        (symbol_short!("clm_file"),),
         (
             claim_id.clone(),
             insurance_id.clone(),
@@ -133,7 +143,7 @@ pub fn emit_claim_processed(
     payout_amount: i128,
 ) {
     env.events().publish(
-        (symbol_short!("claim_processed"),),
+        (symbol_short!("clm_proc"),),
         (
             claim_id.clone(),
             insurance_id.clone(),
@@ -151,7 +161,7 @@ pub fn emit_payout_made(
     amount: i128,
 ) {
     env.events().publish(
-        (symbol_short!("payout_made"),),
+        (symbol_short!("payout"),),
         (claim_id.clone(), recipient.clone(), amount),
     );
 }
@@ -163,7 +173,7 @@ pub fn emit_payout_made(
 pub fn emit_activity_tracked(env: &Env, user: &Address, activity_type: &str, split_id: u64, amount: i128) {
     env.events()
         .publish(
-            (symbol_short!("activity_tracked"),),
+            (symbol_short!("act_track"),),
             (user.clone(), activity_type, split_id, amount)
         );
 }
@@ -174,7 +184,7 @@ pub fn emit_activity_tracked(env: &Env, user: &Address, activity_type: &str, spl
 pub fn emit_rewards_calculated(env: &Env, user: &Address, total_rewards: i128, available_rewards: i128) {
     env.events()
         .publish(
-            (symbol_short!("rewards_calculated"),),
+            (symbol_short!("rwd_calc"),),
             (user.clone(), total_rewards, available_rewards)
         );
 }
@@ -185,7 +195,7 @@ pub fn emit_rewards_calculated(env: &Env, user: &Address, total_rewards: i128, a
 pub fn emit_rewards_claimed(env: &Env, user: &Address, amount_claimed: i128) {
     env.events()
         .publish(
-            (symbol_short!("rewards_claimed"),),
+            (symbol_short!("rwd_clm"),),
             (user.clone(), amount_claimed)
         );
 }
@@ -196,7 +206,7 @@ pub fn emit_rewards_claimed(env: &Env, user: &Address, amount_claimed: i128) {
 pub fn emit_verification_submitted(env: &Env, verification_id: &String, split_id: &String, requester: &Address) {
     env.events()
         .publish(
-            (symbol_short!("verification_submitted"),),
+            (symbol_short!("ver_sub"),),
             (verification_id.clone(), split_id.clone(), requester.clone())
         );
 }
@@ -207,7 +217,7 @@ pub fn emit_verification_submitted(env: &Env, verification_id: &String, split_id
 pub fn emit_verification_completed(env: &Env, verification_id: &String, verified: bool, verifier: &Address) {
     env.events()
         .publish(
-            (symbol_short!("verification_completed"),),
+            (symbol_short!("ver_done"),),
             (verification_id.clone(), verified, verifier.clone())
         );
 }
@@ -218,7 +228,7 @@ pub fn emit_verification_completed(env: &Env, verification_id: &String, verified
 pub fn emit_swap_created(env: &Env, swap_id: &String, participant_a: &Address, participant_b: &Address, amount_a: i128, amount_b: i128) {
     env.events()
         .publish(
-            (symbol_short!("swap_created"),),
+            (symbol_short!("swp_new"),),
             (swap_id.clone(), participant_a.clone(), participant_b.clone(), amount_a, amount_b)
         );
 }
@@ -229,7 +239,7 @@ pub fn emit_swap_created(env: &Env, swap_id: &String, participant_a: &Address, p
 pub fn emit_swap_executed(env: &Env, swap_id: &String, executor: &Address) {
     env.events()
         .publish(
-            (symbol_short!("swap_executed"),),
+            (symbol_short!("swp_exec"),),
             (swap_id.clone(), executor.clone())
         );
 }
@@ -240,7 +250,7 @@ pub fn emit_swap_executed(env: &Env, swap_id: &String, executor: &Address) {
 pub fn emit_swap_refunded(env: &Env, swap_id: &String, refunder: &Address) {
     env.events()
         .publish(
-            (symbol_short!("swap_refunded"),),
+            (symbol_short!("swp_rfnd"),),
             (swap_id.clone(), refunder.clone())
         );
 }
@@ -251,7 +261,7 @@ pub fn emit_swap_refunded(env: &Env, swap_id: &String, refunder: &Address) {
 pub fn emit_oracle_registered(env: &Env, oracle_address: &Address, stake: i128) {
     env.events()
         .publish(
-            (symbol_short!("oracle_registered"),),
+            (symbol_short!("orc_reg"),),
             (oracle_address.clone(), stake)
         );
 }
@@ -262,7 +272,7 @@ pub fn emit_oracle_registered(env: &Env, oracle_address: &Address, stake: i128) 
 pub fn emit_price_submitted(env: &Env, oracle_address: &Address, asset_pair: &String, price: i128) {
     env.events()
         .publish(
-            (symbol_short!("price_submitted"),),
+            (symbol_short!("prc_sub"),),
             (oracle_address.clone(), asset_pair.clone(), price)
         );
 }
@@ -270,10 +280,10 @@ pub fn emit_price_submitted(env: &Env, oracle_address: &Address, asset_pair: &St
 /// Emit when consensus price is calculated
 ///
 /// This event is emitted when the network reaches consensus on a price.
-pub fn emit_consensus_reached(env: &Env, asset_pair: &String, consensus_price: i128, confidence: f64, participating_oracles: u32) {
+pub fn emit_consensus_reached(env: &Env, asset_pair: &String, consensus_price: i128, confidence: i128, participating_oracles: u32) {
     env.events()
         .publish(
-            (symbol_short!("consensus_reached"),),
+            (symbol_short!("cns_rch"),),
             (asset_pair.clone(), consensus_price, confidence, participating_oracles)
         );
 }
@@ -284,7 +294,7 @@ pub fn emit_consensus_reached(env: &Env, asset_pair: &String, consensus_price: i
 pub fn emit_bridge_initiated(env: &Env, bridge_id: &String, source_chain: &String, destination_chain: &String, amount: i128, recipient: &String) {
     env.events()
         .publish(
-            (symbol_short!("bridge_initiated"),),
+            (symbol_short!("brg_init"),),
             (bridge_id.clone(), source_chain.clone(), destination_chain.clone(), amount, recipient.clone())
         );
 }
@@ -295,7 +305,7 @@ pub fn emit_bridge_initiated(env: &Env, bridge_id: &String, source_chain: &Strin
 pub fn emit_bridge_completed(env: &Env, bridge_id: &String, recipient: &String) {
     env.events()
         .publish(
-            (symbol_short!("bridge_completed"),),
+            (symbol_short!("brg_done"),),
             (bridge_id.clone(), recipient.clone())
         );
 }
@@ -306,13 +316,7 @@ pub fn emit_bridge_completed(env: &Env, bridge_id: &String, recipient: &String) 
 pub fn emit_bridge_refunded(env: &Env, bridge_id: &String, sender: &Address) {
     env.events()
         .publish(
-            (symbol_short!("bridge_refunded"),),
+            (symbol_short!("brg_rfnd"),),
             (bridge_id.clone(), sender.clone())
         );
 }
-
-#[contractevent]
-pub fn escrow_created(split_id: String, creator: Address, total_amount: i128);
-
-#[contractevent]
-pub fn payment_received(split_id: String, participant: Address, amount: i128);

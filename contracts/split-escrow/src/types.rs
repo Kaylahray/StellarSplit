@@ -7,7 +7,6 @@
 //! types as specified in issue #59.
 
 use soroban_sdk::{contracterror, contracttype, Address, Env, String, Vec};
-use soroban_sdk::{Address, Vec};
 // ============================================
 // Original Types (preserved for compatibility)
 // ============================================
@@ -32,15 +31,19 @@ pub enum SplitStatus {
 
 /// A participant in a split
 ///
-/// I'm tracking both the owed amount and paid amount separately
-/// to support partial payments and payment verification.
+/// Extended in issue #201 to track the asset (token contract address)
+/// each participant will pay with, enabling multi-asset escrows.
 #[contracttype]
 #[derive(Clone, Debug)]
 pub struct Participant {
     /// The participant's Stellar address
     pub address: Address,
 
-    /// The amount this participant owes
+    /// The token contract address this participant will pay with
+    /// (must be on the contract's approved-asset list)
+    pub asset: Address,
+
+    /// The amount this participant owes (in the units of `asset`)
     pub share_amount: i128,
 
     /// The amount this participant has paid so far
@@ -85,8 +88,6 @@ pub struct Split {
     pub created_at: u64,
 }
 
-/// Contract errors
-#[contracterror]
 /// Rewards status for user rewards
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
 #[contracttype]
@@ -223,7 +224,7 @@ pub struct PriceSubmission {
 pub struct ConsensusPrice {
     pub asset_pair: String,
     pub price: i128,
-    pub confidence: f64,
+    pub confidence: i128, // scaled: 0-10000 = 0%-100%
     pub participating_oracles: u32,
     pub timestamp: u64,
 }
@@ -254,8 +255,8 @@ pub struct BridgeTransaction {
     pub completed_at: Option<u64>,
 }
 
+#[contracterror]
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
-#[repr(u32)]
 pub enum Error {
     SplitNotFound = 1,
     SplitCancelled = 2,
@@ -291,13 +292,11 @@ pub enum Error {
     BridgeAlreadyExists = 32,
     InvalidBridgeStatus = 33,
     ProofInvalid = 34,
+    /// Asset is not on the approved-asset list
+    AssetNotApproved = 35,
 }
 
-impl From<&Error> for soroban_sdk::Error {
-    fn from(e: &Error) -> Self {
-        soroban_sdk::Error::from_contract_error(e.to_u32())
-    }
-}
+
 
 /// Configuration for the contract
 ///
