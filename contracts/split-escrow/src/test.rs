@@ -89,7 +89,7 @@ fn test_happy_path() {
     client.deposit(&split_id, &p2, &500);
 
     let escrow = client.get_split(&split_id);
-    assert_eq!(escrow.status, EscrowStatus::Completed);
+    assert_eq!(escrow.status, EscrowStatus::Released);
     assert!(client.is_fully_funded(&split_id)); // client method returns bool directly in this context (contract interface)
     assert_eq!(token_client.balance(&creator), 1000);
     // contract_id is not easily accessible here without returning it from setup_test or similar.

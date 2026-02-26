@@ -423,6 +423,8 @@ pub enum EscrowStatus {
     Cancelled,
     /// Deadline passed without completion
     Expired,
+    /// Funds have been released to the creator
+    Released,
 }
 
 /// Enhanced participant structure with payment timestamp
