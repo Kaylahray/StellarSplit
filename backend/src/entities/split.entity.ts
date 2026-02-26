@@ -63,6 +63,9 @@ export class Split {
   @Column({ type: "uuid", nullable: true })
   categoryId?: string;
 
+  @Column({ type: "timestamp", nullable: true })
+  expiryDate?: Date;
+
   @ManyToOne(() => ExpenseCategory, (category) => category.splits)
   @JoinColumn({ name: "categoryId" })
   category?: ExpenseCategory;

@@ -13,7 +13,7 @@ export const AppDataSource = new DataSource({
     username: process.env.DB_USERNAME || 'postgres',
     password: process.env.DB_PASSWORD || 'postgres',
     database: process.env.DB_NAME || 'stellarsplit_dev',
-    entities: [path.join(__dirname, '../entities/*.entity{.ts,.js}')],
+    entities: [path.join(__dirname, '../**/*.entity{.ts,.js}')],
     migrations: [
         path.join(__dirname, 'migrations/*{.ts,.js}'),
         path.join(__dirname, '../migrations/*{.ts,.js}'),

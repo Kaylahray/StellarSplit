@@ -34,6 +34,8 @@ import { GovernanceModule } from './governance/governance.module';
 import { ComplianceModule } from './compliance/compliance.module';
 import { SettlementModule } from "./settlement/settlement.module";
 import { TemplatesModule } from "./templates/templates.module";
+import { PushNotificationsModule } from './push-notifications/push-notifications.module';
+import { ArchivingModule } from './modules/archiving/archiving.module';
 // Load environment variables
 dotenv.config({
   path: path.resolve(__dirname, '../.env'),
@@ -110,6 +112,8 @@ dotenv.config({
     ComplianceModule,
     SettlementModule,
     TemplatesModule,
+    PushNotificationsModule,
+    ArchivingModule,
   ],
 })
 export class AppModule { }
