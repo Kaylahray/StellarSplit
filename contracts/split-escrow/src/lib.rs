@@ -353,3 +353,23 @@ impl SplitEscrowContract {
         escrow
     }
 }
+
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum ParticipantStatus {
+    Pending,
+    Partial,
+    Paid,
+}
+
+impl EscrowParticipant {
+    pub fn status(&self) -> ParticipantStatus {
+        if self.amount_paid == 0 {
+            ParticipantStatus::Pending
+        } else if self.amount_paid < self.amount_owed {
+            ParticipantStatus::Partial
+        } else {
+            ParticipantStatus::Paid
+        }
+    }
+}
